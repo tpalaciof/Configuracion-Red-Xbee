@@ -42,9 +42,9 @@ Todos los módulos que deban comunicarse tienen que compartir el mismo `ID` de r
 
 | Archivo | Descripción |
 | --- | --- |
-| `configurador_red_xbee_v1.py` | Primera versión funcional del configurador. |
-| `configurador_red_xbee_v2.py` | Corrige la detección del modo serial: entrar con `+++` no implica necesariamente que `AP=0`. |
-| `configurador_red_xbee_v3.py` | Versión recomendada. Añade la identificación por `NI` al listar puertos y mantiene el nombre del XBee visible en el menú. |
+| `configurador_red_xbee_v1.py` | Versión inicial para leer y configurar los parámetros básicos de los módulos XBee. |
+| `configurador_red_xbee_v2.py` | Versión intermedia compatible con módulos en modo transparente y en modo API. Permite configurar la red y descubrir los nodos remotos conectados. |
+| `configurador_red_xbee_v3.py` | Versión recomendada. Identifica cada XBee por su nombre `NI` al listar los puertos, conserva esa identificación en el menú y facilita trabajar con varios módulos conectados a la Raspberry Pi. |
 | `xbee_configurados.json` | Registro generado automáticamente después de configurar módulos o ejecutar un descubrimiento. |
 
 ## Requisitos
