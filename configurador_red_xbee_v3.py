@@ -164,11 +164,13 @@ def listarPuertosSeriales():
     return sorted(list_ports.comports(), key=lambda puerto: puerto.device)
 
 
-def seleccionarPuerto(puertoPreferido=None):
+def seleccionarPuerto(puertoPreferido=None, baudios=BAUDIOS):
     if puertoPreferido:
-        return puertoPreferido
+        ni = identificarNiEnPuerto(puertoPreferido, baudios)
+        return puertoPreferido, ni
 
     puertos = listarPuertosSeriales()
+    puertosIdentificados = []
 
     print()
     print("Puertos seriales disponibles:")
@@ -176,7 +178,17 @@ def seleccionarPuerto(puertoPreferido=None):
     if puertos:
         for indice, puerto in enumerate(puertos, start=1):
             descripcion = puerto.description or "Sin descripción"
-            print(f"  {indice}. {puerto.device} - {descripcion}")
+            ni = identificarNiEnPuerto(puerto.device, baudios)
+            puertosIdentificados.append((puerto, ni))
+
+            lineaPuerto = f"  {indice}. {puerto.device} - {descripcion}"
+
+            if ni:
+                lineaPuerto += f" | NI: {ni}"
+            else:
+                lineaPuerto += " | NI no disponible"
+
+            print(lineaPuerto)
 
         print(f"  {len(puertos) + 1}. Escribir otra ruta")
 
@@ -190,7 +202,8 @@ def seleccionarPuerto(puertoPreferido=None):
                 continue
 
             if 1 <= opcion <= len(puertos):
-                return puertos[opcion - 1].device
+                puerto, ni = puertosIdentificados[opcion - 1]
+                return puerto.device, ni
 
             if opcion == len(puertos) + 1:
                 break
@@ -201,7 +214,9 @@ def seleccionarPuerto(puertoPreferido=None):
         print("  No se detectaron puertos automáticamente.")
 
     ruta = input("Ruta del puerto [/dev/ttyUSB0]: ").strip()
-    return ruta or "/dev/ttyUSB0"
+    ruta = ruta or "/dev/ttyUSB0"
+    ni = identificarNiEnPuerto(ruta, baudios)
+    return ruta, ni
 
 
 def abrirPuerto(rutaPuerto, baudios):
@@ -430,6 +445,26 @@ def salirModoComando(puerto):
     except ErrorXBee:
         # Puede ocurrir si el módulo ya salió por tiempo de espera.
         pass
+
+
+def identificarNiEnPuerto(rutaPuerto, baudios):
+    """Lee ATNI sin modificar la configuración del XBee conectado."""
+
+    try:
+        with abrirPuerto(rutaPuerto, baudios) as puerto:
+            if not entrarModoComando(puerto):
+                return None
+
+            try:
+                ni = enviarComandoTexto(puerto, "NI").strip()
+            finally:
+                salirModoComando(puerto)
+
+            return ni or None
+
+    except (ErrorXBee, serial.SerialException, OSError, ValueError):
+        # El puerto puede pertenecer a otro dispositivo o estar siendo usado.
+        return None
 
 
 # ******************** DETECCIÓN Y CONSULTAS ********************* #
@@ -1065,6 +1100,8 @@ def operacionLeer(rutaPuerto, baudios):
         if modo == MODO_COMANDO:
             salirModoComando(puerto)
 
+    return configuracion["NI"] or None
+
 
 def operacionConfigurar(rutaPuerto, baudios):
     # Primera conexión: leer la configuración y salir de Command Mode antes
@@ -1081,7 +1118,7 @@ def operacionConfigurar(rutaPuerto, baudios):
 
     if not pedirConfirmacion("¿Desea escribir estos valores en el XBee?"):
         print("Configuración cancelada. No se modificó el XBee.")
-        return
+        return configuracionActual["NI"] or None
 
     print()
     print("Escribiendo configuración...")
@@ -1117,6 +1154,7 @@ def operacionConfigurar(rutaPuerto, baudios):
 
     print("Configuración guardada y verificada correctamente.")
     print(f"Registro actualizado: {RUTA_REGISTRO.name}")
+    return configuracionFinal["NI"] or None
 
 
 def operacionDescubrir(rutaPuerto, baudios):
@@ -1146,14 +1184,21 @@ def operacionDescubrir(rutaPuerto, baudios):
     mostrarNodosDescubiertos(nodos)
     guardarDescubrimiento(configuracion, nodos)
     print(f"Resultado guardado en {RUTA_REGISTRO.name}.")
+    return configuracion["NI"] or None
 
 
-def mostrarMenu(rutaPuerto, baudios):
+def mostrarMenu(rutaPuerto, baudios, niPuertoActual=None):
     print()
     print("=" * 58)
     print("CONFIGURADOR DE RED XBEE-PRO 900HP DIGIMESH")
     print("=" * 58)
-    print(f"Puerto actual: {rutaPuerto} | {baudios} baudios")
+
+    lineaPuerto = f"Puerto actual: {rutaPuerto} | {baudios} baudios"
+
+    if niPuertoActual:
+        lineaPuerto += f" | NI: {niPuertoActual}"
+
+    print(lineaPuerto)
     print()
     print("  1. Leer configuración del XBee local")
     print("  2. Configurar ID, AP, CE y NI")
@@ -1183,28 +1228,33 @@ def main():
     )
     argumentos = analizador.parse_args()
 
-    rutaPuerto = seleccionarPuerto(argumentos.puerto)
     baudios = argumentos.baudios
+    rutaPuerto, niPuertoActual = seleccionarPuerto(
+        argumentos.puerto,
+        baudios,
+    )
 
     while True:
-        mostrarMenu(rutaPuerto, baudios)
+        mostrarMenu(rutaPuerto, baudios, niPuertoActual)
         opcion = input("Seleccione una opción: ").strip()
 
         try:
             if opcion == "1":
-                operacionLeer(rutaPuerto, baudios)
+                niPuertoActual = operacionLeer(rutaPuerto, baudios)
 
             elif opcion == "2":
-                operacionConfigurar(rutaPuerto, baudios)
+                niPuertoActual = operacionConfigurar(rutaPuerto, baudios)
 
             elif opcion == "3":
-                operacionDescubrir(rutaPuerto, baudios)
+                niPuertoActual = operacionDescubrir(rutaPuerto, baudios)
 
             elif opcion == "4":
                 mostrarRegistro()
 
             elif opcion == "5":
-                rutaPuerto = seleccionarPuerto()
+                rutaPuerto, niPuertoActual = seleccionarPuerto(
+                    baudios=baudios,
+                )
 
             elif opcion == "0":
                 print("Programa finalizado.")
