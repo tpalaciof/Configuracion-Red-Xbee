@@ -127,7 +127,7 @@ def bytesAEntero(datos):
 
 
 def textoHexadecimalAEntero(texto):
-    texto = texto.strip()
+    texto = texto.strip() # elimina espacios y saltos de línea sobrantes al principio y al final
 
     if not texto:
         return 0
@@ -466,44 +466,45 @@ def enviarComandoApi(
 
 # *********************** MODO COMANDO AT ************************ #
 
-def leerRespuestaTexto(puerto, tiempoEspera=TIEMPO_RESPUESTA_AT_S):
-    tiempoFinal = time.monotonic() + tiempoEspera
-    respuesta = bytearray()
+def leerRespuestaTexto(puerto, tiempoEspera=TIEMPO_RESPUESTA_AT_S): # Si no se especifica el segundo parámetro de tiempo, se usará el valor predeterminado de TIEMPO_RESPUESTA_AT_S = 2.0 segundos.
+    tiempoFinal = time.monotonic() + tiempoEspera   # time.monotonic() = tiempo inicial en el que inicia la función. En base a esto se calcula el tiempo final que se necesita para salir del while. tiempoFinal es un valor fijo. 
+    respuesta = bytearray()                         # Contenedor vacío para almacenar bytes
     recibioRespuesta = False
 
-    while time.monotonic() < tiempoFinal:
-        dato = puerto.read(1)
+    while time.monotonic() < tiempoFinal: # time.monotonic() inicia como el tiempo inicial, pero dentro del while se va actualizando hasta superar el tiempo final. Es decir, cuando pase el tiempo de espera. 
+        dato = puerto.read(1)             # Intenta leer un byte del puerto serial  
 
         if not dato:
             continue
 
-        if dato in (b"\r", b"\n"):
-            if dato == b"\r" or recibioRespuesta:
+        if dato in (b"\r", b"\n"):                  # Pregunta si el byte recibido es \r o \n
+            if dato == b"\r" or recibioRespuesta:   # Si el dato es \r, entonces retorna la respuesta. Si el dato es \n y ya se recibió una respuesta anteriormente (recibioRespuesta == True), también retorna la respuesta. 
                 return respuesta.decode(
                     "ascii",
-                    errors="replace",
-                ).strip()
+                    errors="replace",               # Si aparece algún byte que no pueda interpretarse como ASCII, no se provoca una excepción y se reemplaza por un carácter especial.
+                ).strip()                           # elimina espacios y saltos de línea sobrantes al principio y al final.
 
-            continue
+            continue                                # Sirve para ignorar un salto de línea inicial
 
-        respuesta.extend(dato)
+        respuesta.extend(dato)                      # Añade la lista de elementos (byte) al final de la lista actual
         recibioRespuesta = True
 
     return None
 
 
 def entrarModoComando(puerto):
-    puerto.reset_input_buffer()
-    puerto.reset_output_buffer()
+    puerto.reset_input_buffer()     # borra todos los bytes que estuvieran pendientes de lectura.
+    puerto.reset_output_buffer()    # borra datos pendientes de transmisión que todavía estuvieran en el buffer de salida
 
-    # El manual exige silencio antes y después de +++.
-    time.sleep(TIEMPO_GUARDA_S)
+    time.sleep(TIEMPO_GUARDA_S) # Por defecto, el Xbee exige un tiempo de silencio de por lo menos 1 segundo antes y después de enviar +++
     puerto.write(b"+++")
-    puerto.flush()
+    puerto.flush()              # Hace que Python espere hasta que los datos pendientes de escritura hayan sido enviados al sistema serial
     time.sleep(TIEMPO_GUARDA_S)
 
-    respuesta = leerRespuestaTexto(puerto, 0.6)
-    return respuesta == "OK"
+    respuesta = leerRespuestaTexto(puerto, 0.6) # Se espera un máximo de 0.6 segundos para recibir la respuesta del XBee. Si no llega nada, se retorna None. Si llega algo, se retorna la respuesta decodificada y sin espacios ni saltos de línea al principio y al final.
+    return respuesta == "OK"                    # Según el manual, el equipo debe responder con OK\r una vez entre en el modo comnando
+                                                # Si la respuesta es "OK", significa que se logró entrar en modo comando. Si no, significa que no se pudo entrar en modo comando y se retorna False.
+                                                
 
 
 def enviarComandoTexto(puerto, comando, parametro=None):
@@ -512,7 +513,7 @@ def enviarComandoTexto(puerto, comando, parametro=None):
     if parametro is not None:
         texto += parametro
 
-    puerto.reset_input_buffer()
+    puerto.reset_input_buffer()     # borra todos los bytes que estuvieran pendientes de lectura.
     puerto.write((texto + "\r").encode("ascii"))
     puerto.flush()
 
