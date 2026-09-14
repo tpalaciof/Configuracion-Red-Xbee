@@ -115,7 +115,7 @@ def fechaHoraActual():
 
 
 def enteroABytes(valor):
-    cantidadBytes = max(1, (valor.bit_length() + 7) // 8)
+    cantidadBytes = max(1, (valor.bit_length() + 7) // 8) #El +7 convierte cualquier sobrante de 1 a 7 bits en un byte adicional.
     return valor.to_bytes(cantidadBytes, byteorder="big")
 
 
@@ -126,13 +126,13 @@ def bytesAEntero(datos):
     return int.from_bytes(datos, byteorder="big")
 
 
-def textoAEnteroHexadecimal(texto):
+def textoHexadecimalAEntero(texto):
     texto = texto.strip()
 
     if not texto:
         return 0
 
-    return int(texto, 16)
+    return int(texto, 16) # print(int("FF", 16)) ---> 255
 
 
 def descripcionModo(modo):
@@ -149,7 +149,7 @@ def pedirConfirmacion(mensaje):
     while True:
         respuesta = input(f"{mensaje} [s/n]: ").strip().lower()
 
-        if respuesta in ("s", "si", "sí"):
+        if respuesta in ("s", "si", "sí", "y", "yes"):
             return True
 
         if respuesta in ("n", "no"):
@@ -161,13 +161,64 @@ def pedirConfirmacion(mensaje):
 # ************************ PUERTO SERIAL ************************** #
 
 def listarPuertosSeriales():
-    return sorted(list_ports.comports(), key=lambda puerto: puerto.device)
+    return sorted(list_ports.comports(), key=lambda puerto: puerto.device) #Ordena los puertos encontrados usando puerto.device como criterio de ordenamiento 
+ 
+"""
+list_ports.comports() --> busca los puertos seriales que el sistema operativo detecta. Cada objeto tiene varias propiedades:
 
+    puerto.device
+    puerto.description
+    puerto.manufacturer
 
-def seleccionarPuerto(puertoPreferido=None, baudios=BAUDIOS):
-    if puertoPreferido:
-        ni = identificarNiEnPuerto(puertoPreferido, baudios)
-        return puertoPreferido, ni
+Ejemplo: puerto1
+
+    puerto1.device = "/dev/ttyUSB2"
+    puerto1.description = "CP2102"
+"""
+"""
+La función sorted() necesita saber con qué criterio ordenar, como list_ports.comports() devuelve objetos que representan puertos seriales, 
+se utiliza cómo criterio de ordenamiento 'key' una función que toma un objeto puerto y devuelve el valor de la propiedad 'device' de ese objeto.
+
+    lambda puerto: puerto.device  --->   def obtenerNombrePuerto(puerto):
+                                             return puerto.device
+    key=obtenerNombrePuerto
+
+Ejemplo: 
+
+    lambda puerto: puerto.device
+    
+    puerto = puerto1
+    puerto1.device = "/dev/ttyUSB2"
+    
+    puerto = puerto2
+    puerto2.device = "/dev/ttyUSB0"
+
+    por lo tanto las claves son: 
+
+    "/dev/ttyUSB2"
+    "/dev/ttyUSB0"
+
+    y sorted() las ordena de la siguiente manera: 
+
+    "/dev/ttyUSB0"
+    "/dev/ttyUSB2"
+
+    Sin embargo, sorted() no devuelve la cadena "/dev/ttyUSB0" ni "/dev/ttyUSB2", sino que devuelve los objetos 
+    completos puerto1 y puerto2, pero en el orden correcto según la propiedad 'device'. Es decir, devuelve algo así: 
+
+    [puerto2, puerto1]
+"""
+
+def seleccionarPuerto(puertoPreferido=None, baudios=BAUDIOS):   # puertoPreferido=None, siginifica que, por defecto, no se le ha indicado qué puerto usar. Si quien llama a la función no me entrega un puerto, asumiré que no hay uno preseleccionado.
+
+    if puertoPreferido:                                         # ¿Me dieron ya un puerto específico?
+
+        """ seleccionarPuerto("/dev/ttyUSB0") 
+            puertoPreferido = "/dev/ttyUSB0"
+        """
+
+        ni = identificarNiEnPuerto(puertoPreferido, baudios)    # Si sí, 'identificarNiEnPuerto' intenta comunicarse con el XBee conectado a ese puerto y averiguar su parámetro NI.
+        return puertoPreferido, ni                              # ("/dev/ttyUSB0", "COORDINADOR") 
 
     puertos = listarPuertosSeriales()
     puertosIdentificados = []
@@ -175,18 +226,52 @@ def seleccionarPuerto(puertoPreferido=None, baudios=BAUDIOS):
     print()
     print("Puertos seriales disponibles:")
 
-    if puertos:
-        for indice, puerto in enumerate(puertos, start=1):
-            descripcion = puerto.description or "Sin descripción"
-            ni = identificarNiEnPuerto(puerto.device, baudios)
-            puertosIdentificados.append((puerto, ni))
+    if puertos:                                                 # si la lista de puertos no está vacía
+        for indice, puerto in enumerate(puertos, start=1):      # start = 1 porque por defecto es 0
 
-            lineaPuerto = f"  {indice}. {puerto.device} - {descripcion}"
+            """
+            Supongamos que:
+
+            puertos = [objetoPuertoUSB0, objetoPuertoUSB1]
+
+            donde:
+
+            objetoPuertoUSB0.device = "/dev/ttyUSB0"
+            objetoPuertoUSB1.device = "/dev/ttyUSB1"
+
+            Entonces:
+
+            enumerate(puertos, start=1)
+
+            genera en cada iteración:
+
+            Primera iteración:
+                indice = 1
+                puerto = objetoPuertoUSB0
+
+            Segunda iteración:
+                indice = 2
+                puerto = objetoPuertoUSB1
+            """
+            descripcion = puerto.description or "Sin descripción"  # Usa puerto.description si tiene contenido. Si está vacío, usa "Sin descripción". Ejemplo: puerto.description = "CP2102 USB to UART Bridge Controller"
+            ni = identificarNiEnPuerto(puerto.device, baudios)     # Intenta descubrir el NI del XBee conectado a ese puerto.
+            puertosIdentificados.append((puerto, ni))              # Hace una dupla de los objetos puerto y ni, y la agrega a la lista puertosIdentificados.
+
+            """
+            Ejemplo: 
+
+            puertosIdentificados = [
+                (objetoPuertoUSB0, "COORDINADOR"),
+                (objetoPuertoUSB1, "ROUTER")
+            ]
+            """
+
+            lineaPuerto = f"  {indice}. {puerto.device} - {descripcion}"    # 1. /dev/ttyUSB0 - CP2102 USB to UART
 
             if ni:
-                lineaPuerto += f" | NI: {ni}"
+                lineaPuerto += f" | NI: {ni}"                               # 1. /dev/ttyUSB0 - CP2102 USB to UART | NI: COORDINADOR
             else:
-                lineaPuerto += " | NI no disponible"
+                lineaPuerto += " | NI no disponible"                        # 1. /dev/ttyUSB0 - CP2102 USB to UART | NI no disponible
 
             print(lineaPuerto)
 
@@ -201,34 +286,37 @@ def seleccionarPuerto(puertoPreferido=None, baudios=BAUDIOS):
                 print("Debe escribir el número de una opción.")
                 continue
 
-            if 1 <= opcion <= len(puertos):
-                puerto, ni = puertosIdentificados[opcion - 1]
-                return puerto.device, ni
+            if 1 <= opcion <= len(puertos):                                 # Usuario escoge desde la opción 1 hasta la opción n, donde n = len(puertos)
+                puerto, ni = puertosIdentificados[opcion - 1]               # Se resta 1 porque la lista puertosIdentificados empieza en índice 0, mientras que las opciones mostradas al usuario empiezan en 1.
+                return puerto.device, ni                                    # /dev/ttyUSB0, "COORDINADOR"  o  /dev/ttyUSB1, "ROUTER"
 
-            if opcion == len(puertos) + 1:
+            if opcion == len(puertos) + 1:                                  # Se escogió la opción de escribir otra ruta
                 break
 
             print("Opción no válida.")
 
-    else:
+    else:                                                                   # si la lista de puertos SÍ está vacía
         print("  No se detectaron puertos automáticamente.")
 
-    ruta = input("Ruta del puerto [/dev/ttyUSB0]: ").strip()
-    ruta = ruta or "/dev/ttyUSB0"
+    ruta = input("Ruta del puerto [/dev/ttyUSB0]: ").strip()                # Si se eligió Escribir otra ruta o no se detectó ningún puerto automáticamente, se le pide al usuario que escriba la ruta del puerto. 
+    ruta = ruta or "/dev/ttyUSB0"                                           # Si el usuario no escribe nada, se usa "/dev/ttyUSB0" como valor predeterminado.       
     ni = identificarNiEnPuerto(ruta, baudios)
     return ruta, ni
 
 
 def abrirPuerto(rutaPuerto, baudios):
-    try:
-        return serial.Serial(
-            port=rutaPuerto,
-            baudrate=baudios,
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            timeout=TIEMPO_ESPERA_SERIAL_S,
-            write_timeout=2.0,
+    try:                                    # Try: "Intenta hacer lo siguiente, pero prepárate por si ocurre un error"
+        return serial.Serial(               # Instrucción que abre el puerto serial
+                      
+            port=rutaPuerto,                # rutaPuerto = "/dev/ttyUSB0"
+
+            baudrate=baudios,               # baudios = 9600 
+            bytesize=serial.EIGHTBITS,      # 8 bits de datos 
+            parity=serial.PARITY_NONE,      # Sin bit de paridad  
+            stopbits=serial.STOPBITS_ONE,   # 1 bit de parada ----> se está configurando 9600 8N1
+
+            timeout=TIEMPO_ESPERA_SERIAL_S, # cuánto tiempo esperará una operación de lectura antes de rendirse
+            write_timeout=2.0,              # cuánto tiempo esperará una operación de escritura antes de rendirse
         )
 
     except serial.SerialException as error:
@@ -478,7 +566,7 @@ def detectarModoXBee(puerto):
         # no significa necesariamente que el valor de AP sea 0.
         try:
             respuestaAp = enviarComandoTexto(puerto, "AP")
-            ap = textoAEnteroHexadecimal(respuestaAp)
+            ap = textoHexadecimalAEntero(respuestaAp)
         except (ErrorXBee, ValueError):
             salirModoComando(puerto)
         else:
@@ -532,7 +620,7 @@ def consultarComando(puerto, modo, comando):
         if comando == "NI":
             return respuesta.encode("ascii", errors="replace")
 
-        return enteroABytes(textoAEnteroHexadecimal(respuesta))
+        return enteroABytes(textoHexadecimalAEntero(respuesta))
 
     return enviarComandoApi(puerto, modo, comando)
 
