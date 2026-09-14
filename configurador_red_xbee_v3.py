@@ -507,17 +507,27 @@ def entrarModoComando(puerto):
                                                 
 
 
-def enviarComandoTexto(puerto, comando, parametro=None):
-    texto = f"AT{comando}"
+def enviarComandoTexto(puerto, comando, parametro=None):  # Esta función envía comandos AT al XBee una vez que está en modo comando 
+    texto = f"AT{comando}"                                # Ejemplo: enviarComandoTexto(puerto, "NI") ---> ATNI\r 
 
     if parametro is not None:
         texto += parametro
 
-    puerto.reset_input_buffer()     # borra todos los bytes que estuvieran pendientes de lectura.
-    puerto.write((texto + "\r").encode("ascii"))
+
+    """
+    Si se proporcionó un parámetro, lo añade al comando AT. Esto permite modificar el valor del registro.
+    Ejemplo:
+    
+    texto = "ATNI"
+    parametro = "COORDINADOR"
+    resultado: "ATNICOORDINADOR"
+    """
+    puerto.reset_input_buffer()                     # borra todos los bytes que estuvieran pendientes de lectura.
+    puerto.write((texto + "\r").encode("ascii"))    # Se codifica de ascii ATNICOORDINADOR<CR> a bytes 
     puerto.flush()
 
-    respuesta = leerRespuestaTexto(puerto)
+    respuesta = leerRespuestaTexto(puerto)          # retorna el arreglo de bytes que se encuentre en el buffer de entrada del puerto serial del XBee. 
+                                                    # Se decodifica de bytes a ascii y sin espacios ni saltos de línea al principio y al final. Si no hay respuesta, retorna None.
 
     if respuesta == "ERROR" or respuesta is None:
         if respuesta == "ERROR":
@@ -530,7 +540,7 @@ def enviarComandoTexto(puerto, comando, parametro=None):
 
 def salirModoComando(puerto):
     try:
-        enviarComandoTexto(puerto, "CN")
+        enviarComandoTexto(puerto, "CN") # ATCN\r ---> CN = Command Mode Exit. Se sale del modo comando y aplica a los cambios pendientes.
     except ErrorXBee:
         # Puede ocurrir si el módulo ya salió por tiempo de espera.
         pass
