@@ -344,139 +344,6 @@ def abrirPuerto(rutaPuerto, baudios):
         ) from error
 
 
-# *********************** TRAMAS API XBEE ************************ #
-
-# Estas funciones solo se utilizan durante el descubrimiento ND.
-# No se necesitan para leer ni escribir ID, AP, CE, NI, NO o NT.
-# 'modo' es MODO_API_1 o MODO_API_2: son constantes de texto del programa,
-# no los números 1 y 2 que se guardan en el parámetro AP del XBee.
-
-def escaparDatosApi(datos):
-    """Prepara los bytes reservados para transmitirlos en API 2."""
-    resultado = bytearray()
-
-    for byte in datos:  # Al recorrer bytes se obtiene un entero de 0 a 255.
-        if byte in (0x7E, 0x7D, 0x11, 0x13):
-            resultado.append(0x7D)         # Avisa que el siguiente byte está escapado.
-            resultado.append(byte ^ 0x20)  # ^ es XOR; no es una potencia.
-        else:
-            resultado.append(byte)
-
-    # Ejemplo: 0x7E se transmite como 0x7D 0x5E.
-    # El receptor recupera 0x7E aplicando 0x5E ^ 0x20.
-    # No se cifra ni se modifica el significado de los datos.
-    return bytes(resultado)
-
-
-def crearTramaApi(datosTrama, modo):
-    """Añade inicio, longitud y checksum a los datos internos de una trama."""
-    if modo not in (MODO_API_1, MODO_API_2):
-        raise ErrorXBee("para crear una trama debe seleccionarse API 1 o API 2")
-
-    # La longitud cuenta solo datosTrama, antes de agregar escapes.
-    # to_bytes(2, 'big') ocupa dos bytes: el más significativo va primero.
-    # Ejemplo: cuatro bytes de datos ---> longitud b'\x00\x04'.
-    longitud = len(datosTrama).to_bytes(2, byteorder="big")
-
-    # & 0xFF conserva los ocho bits inferiores del resultado.
-    # La suma de datosTrama + checksum debe terminar en 0xFF.
-    # No se incluyen el delimitador ni la longitud en esta suma.
-    checksum = bytes([(0xFF - sum(datosTrama)) & 0xFF])
-    contenido = longitud + datosTrama + checksum
-
-    if modo == MODO_API_2:
-        contenido = escaparDatosApi(contenido)
-
-    return b"\x7E" + contenido  # El delimitador inicial nunca se escapa.
-
-
-def leerByteApi(puerto, modo, tiempoFinal):
-    """Lee un byte lógico; en API 2 puede necesitar dos bytes del puerto."""
-    escapado = False
-
-    while time.monotonic() < tiempoFinal:
-        dato = puerto.read(1)
-
-        if not dato:
-            continue
-
-        byte = dato[0]  # b'\x88'[0] es el entero 136, equivalente a 0x88.
-
-        if escapado:
-            return byte ^ 0x20
-
-        if modo == MODO_API_2 and byte == 0x7D:
-            # La segunda mitad puede llegar en otra lectura. Se sigue esperando
-            # hasta tiempoFinal; una lectura vacía no implica un escape roto.
-            escapado = True
-            continue
-
-        return byte
-
-    if escapado:
-        raise ErrorXBee("se recibió un escape API incompleto")
-
-    raise TimeoutError
-
-
-def leerTramaApi(puerto, modo, tiempoEspera=TIEMPO_RESPUESTA_API_S):
-    """Reconstruye una trama, comprueba su checksum y devuelve sus datos internos.
-
-    Resultado: tipo de trama + campos específicos de ese tipo.
-    No devuelve delimitador, longitud ni checksum. Tampoco interpreta ND;
-    esa tarea corresponde a descubrirNodosApi y analizarRespuestaNd.
-    """
-    if modo not in (MODO_API_1, MODO_API_2):
-        raise ErrorXBee("para leer una trama debe seleccionarse API 1 o API 2")
-
-    # Todas las lecturas comparten el mismo límite, que no se reinicia por byte.
-    # read(1) conserva el timeout corto configurado en abrirPuerto.
-    tiempoFinal = time.monotonic() + tiempoEspera
-
-    # Busca el delimitador inicial. Este byte nunca se escapa.
-    while time.monotonic() < tiempoFinal:
-        dato = puerto.read(1)
-
-        if dato == b"\x7E":
-            break
-    else:
-        raise TimeoutError
-
-    byteLongitudAlto = leerByteApi(puerto, modo, tiempoFinal)
-    byteLongitudBajo = leerByteApi(puerto, modo, tiempoFinal)
-    # << 8 desplaza el byte alto ocho posiciones; | reúne ambos bytes.
-    # Ejemplo: 0x01 0x02 ---> 1 * 256 + 2 = 258 bytes.
-    longitud = (byteLongitudAlto << 8) | byteLongitudBajo
-
-    if longitud == 0:
-        raise ErrorXBee("se recibió una trama API sin tipo de trama")
-
-    datosTrama = bytearray()
-
-    for _ in range(longitud):  # _ indica que no necesitamos el número de la vuelta.
-        datosTrama.append(leerByteApi(puerto, modo, tiempoFinal))
-
-    checksum = leerByteApi(puerto, modo, tiempoFinal)
-
-    if ((sum(datosTrama) + checksum) & 0xFF) != 0xFF:
-        raise ErrorXBee("se recibió una trama API con checksum incorrecto")
-
-    return bytes(datosTrama)
-
-
-def siguienteIdTrama():
-    """Genera 1, 2, ..., 255, 1, ... para relacionar ND con sus respuestas."""
-    # % obtiene el resto de la división. Si el valor era 255, vuelve a 1.
-    # Se evita 0 porque desactiva la respuesta del comando API 0x08.
-    siguienteIdTrama.valor = (siguienteIdTrama.valor % 255) + 1
-    return siguienteIdTrama.valor
-
-
-# Las funciones son objetos de Python y pueden tener atributos.
-# .valor recuerda el último identificador entre llamadas a siguienteIdTrama().
-siguienteIdTrama.valor = 0
-
-
 # *********************** MODO COMANDO AT ************************ #
 
 def leerRespuestaTexto(puerto, tiempoEspera=TIEMPO_RESPUESTA_AT_S): # Si no se especifica el segundo parámetro de tiempo, se usará el valor predeterminado de TIEMPO_RESPUESTA_AT_S = 2.0 segundos.
@@ -523,7 +390,7 @@ def entrarModoComando(puerto):
             "La secuencia +++ y los tiempos de guarda deben coincidir con CC/GT."
         )
 
-def enviarComandoTexto(puerto, comando, parametro=None):  # Esta función envía comandos AT al XBee una vez que está en modo comando 
+def enviarComandoTexto(puerto, comando, parametro=None):  # Esta función envía comandos AT al XBee una vez que está en modo comando y recibe su respuesta
     texto = f"AT{comando}"                                # Ejemplo: enviarComandoTexto(puerto, "NI") ---> ATNI\r 
 
     if parametro is not None:
@@ -539,8 +406,8 @@ def enviarComandoTexto(puerto, comando, parametro=None):  # Esta función envía
     resultado: "ATNICOORDINADOR"
     """
     puerto.reset_input_buffer()                     # borra todos los bytes que estuvieran pendientes de lectura.
-    puerto.write((texto + "\r").encode("ascii"))    # Se codifica de ascii ATNICOORDINADOR<CR> a bytes 
-    puerto.flush()
+    puerto.write((texto + "\r").encode("ascii"))    # Se codifica de ascii, por ejemplo: ATNICOORDINADOR<CR> a bytes 
+    puerto.flush()                                  # Hace que Python espere hasta que los datos pendientes de escritura hayan sido enviados al sistema serial
 
     respuesta = leerRespuestaTexto(puerto)          # retorna el arreglo de bytes que se encuentre en el buffer de entrada del puerto serial del XBee. 
                                                     # Se decodifica de bytes a ascii y sin espacios ni saltos de línea al principio y al final. Si no hay respuesta, retorna None.
@@ -566,9 +433,9 @@ def enviarComandoTexto(puerto, comando, parametro=None):  # Esta función envía
     if not respuesta:
         raise ErrorXBee(f"AT{comando} devolvió un valor numérico vacío")
 
-    # No se convierte texto a bytes y después a entero: basta una conversión.
-    try:
-        return textoHexadecimalAEntero(respuesta)
+    
+    try:                                          # Si lo que queda es una respuesta que no es ninguna de las anteriores... tiene que ser texto que represente un hexadecimal 
+        return textoHexadecimalAEntero(respuesta) # Se convierte el texto de la respuesta hexadecimal del comando del XBee a un entero.
     except ValueError as error:
         raise ErrorXBee(
             f"AT{comando} no devolvió un hexadecimal válido: {respuesta!r}"
@@ -582,6 +449,8 @@ def salirModoComando(puerto):
         # Puede ocurrir si el módulo ya salió por tiempo de espera.
         pass
 
+
+# *********************** CONSULTAS AT LOCALES ******************** #
 
 def identificarNiEnPuerto(rutaPuerto, baudios):
     """Lee ATNI sin modificar la configuración del XBee conectado."""
@@ -601,31 +470,35 @@ def identificarNiEnPuerto(rutaPuerto, baudios):
         # El puerto puede pertenecer a otro dispositivo o estar siendo usado.
         return None
 
-
-# *********************** CONSULTAS AT LOCALES ******************** #
-
-
+    
 def leerRegistrosConfiguracion(puerto):
     """Lee los registros locales dentro de una sesión de modo comando ya abierta."""
-    configuracion = {}
+    configuracion = {}  # Crea un diccionario vacío
 
     # Un fallo en un registro obligatorio impide identificar/configurar el nodo.
-    for comando in COMANDOS_LECTURA_OBLIGATORIOS:
-        configuracion[comando] = enviarComandoTexto(puerto, comando)
+    for comando in COMANDOS_LECTURA_OBLIGATORIOS:                            # COMANDOS_LECTURA_OBLIGATORIOS = ("ID", "AP", "CE", "NI", "SH", "SL")
+        configuracion[comando] = enviarComandoTexto(puerto, comando)         # Ejemplo: configuracion["ID"] = enviarComandoTexto(puerto, "ID")
 
-    # Algunos firmwares no ofrecen todos los registros adicionales.
-    # None significa 'no disponible'; no debe confundirse con el número cero.
-    for comando in COMANDOS_LECTURA_ADICIONALES:
+    
+    for comando in COMANDOS_LECTURA_ADICIONALES:                             # COMANDOS_LECTURA_ADICIONALES = ("VR", "BD", "HP", "CM", "DH", "DL")
         try:
             configuracion[comando] = enviarComandoTexto(puerto, comando)
         except ErrorXBee:
-            configuracion[comando] = None
+            configuracion[comando] = None                                    # Algunos firmwares no ofrecen todos los registros adicionales. None significa 'no disponible'
 
-    # SH y SL son dos mitades de la dirección. :08X da ocho cifras hexadecimales
-    # en mayúsculas, rellenando con ceros: las dos mitades forman 16 cifras.
+
+    # SH y SL son dos mitades de la dirección. SH = Serial Number High, SL = Serial Number Low. 
+    # Se combinan para formar la dirección MAC completa de 64 bits. Ejemplo: SH=0x0013A200, SL=0x40B9B5D2 ---> MAC=0013A20040B9B5D2
     configuracion["MAC"] = (
         f"{configuracion['SH']:08X}{configuracion['SL']:08X}"
     )
+
+    """
+    08X da ocho cifras hexadecimales, las dos mitades forman 16 cifras que es la dirección MAC completa. 
+    0  → rellenar con ceros a la izquierda
+    8  → ocupar exactamente 8 posiciones como mínimo
+    X  → representar el número en hexadecimal, usando A-F mayúsculas
+    """
 
     return configuracion
 
@@ -651,12 +524,12 @@ def mostrarConfiguracion(configuracion):
     print("-" * 46)
     print(f"MAC SH:SL : {configuracion['MAC']}")
     print(f"NI        : {configuracion['NI'] or '(vacío)'}")
-    print(f"ID        : 0x{configuracion['ID']:04X}")
-    print(f"AP        : {ap} - {NOMBRES_AP.get(ap, 'valor desconocido')}")
-    print(f"CE        : {ce} - {NOMBRES_CE.get(ce, 'valor desconocido')}")
+    print(f"ID        : 0x{configuracion['ID']:04X}")                       #04X es formato hexadecimal de 4 dígitos, rellenando con ceros a la izquierda si es necesario. Ejemplo: 9 ---> 0009
+    print(f"AP        : {ap} - {NOMBRES_AP.get(ap, 'valor desconocido')}")  # Busca ap dentro del diccionario NOMBRES_AP (recordar que ahora ap = configuracion["AP"] y es un valor) 
+    print(f"CE        : {ce} - {NOMBRES_CE.get(ce, 'valor desconocido')}")  # Si no existe, devuelve "valor desconocido"
     # AP describe la operación normal; Lectura describe cómo se consultó.
     # Así AP=1/2 y modo comando AT pueden aparecer juntos sin contradicción.
-    print(f"Lectura   : {descripcionModo(MODO_COMANDO)}")
+    print(f"Lectura   : {descripcionModo(MODO_COMANDO)}")                   # Devuelve una descripción textual del modo en que se leyó la configuración. En este caso, siempre, en modo comando
 
     if configuracion.get("BD") is not None:
         bd = configuracion["BD"]
@@ -976,6 +849,140 @@ def mostrarRegistro():
             f"AP {modulo.get('ap', '?')} | "
             f"CE {modulo.get('ce', '?')}"
         )
+
+
+# *********************** TRAMAS API XBEE ************************ #
+
+# Estas funciones solo se utilizan durante el descubrimiento ND.
+# No se necesitan para leer ni escribir ID, AP, CE, NI, NO o NT.
+# 'modo' es MODO_API_1 o MODO_API_2: son constantes de texto del programa,
+# no los números 1 y 2 que se guardan en el parámetro AP del XBee.
+
+def escaparDatosApi(datos):
+    """Prepara los bytes reservados para transmitirlos en API 2."""
+    resultado = bytearray()
+
+    for byte in datos:  # Al recorrer bytes se obtiene un entero de 0 a 255.
+        if byte in (0x7E, 0x7D, 0x11, 0x13):
+            resultado.append(0x7D)         # Avisa que el siguiente byte está escapado.
+            resultado.append(byte ^ 0x20)  # ^ es XOR; no es una potencia.
+        else:
+            resultado.append(byte)
+
+    # Ejemplo: 0x7E se transmite como 0x7D 0x5E.
+    # El receptor recupera 0x7E aplicando 0x5E ^ 0x20.
+    # No se cifra ni se modifica el significado de los datos.
+    return bytes(resultado)
+
+
+def crearTramaApi(datosTrama, modo):
+    """Añade inicio, longitud y checksum a los datos internos de una trama."""
+    if modo not in (MODO_API_1, MODO_API_2):
+        raise ErrorXBee("para crear una trama debe seleccionarse API 1 o API 2")
+
+    # La longitud cuenta solo datosTrama, antes de agregar escapes.
+    # to_bytes(2, 'big') ocupa dos bytes: el más significativo va primero.
+    # Ejemplo: cuatro bytes de datos ---> longitud b'\x00\x04'.
+    longitud = len(datosTrama).to_bytes(2, byteorder="big")
+
+    # & 0xFF conserva los ocho bits inferiores del resultado.
+    # La suma de datosTrama + checksum debe terminar en 0xFF.
+    # No se incluyen el delimitador ni la longitud en esta suma.
+    checksum = bytes([(0xFF - sum(datosTrama)) & 0xFF])
+    contenido = longitud + datosTrama + checksum
+
+    if modo == MODO_API_2:
+        contenido = escaparDatosApi(contenido)
+
+    return b"\x7E" + contenido  # El delimitador inicial nunca se escapa.
+
+
+def leerByteApi(puerto, modo, tiempoFinal):
+    """Lee un byte lógico; en API 2 puede necesitar dos bytes del puerto."""
+    escapado = False
+
+    while time.monotonic() < tiempoFinal:
+        dato = puerto.read(1)
+
+        if not dato:
+            continue
+
+        byte = dato[0]  # b'\x88'[0] es el entero 136, equivalente a 0x88.
+
+        if escapado:
+            return byte ^ 0x20
+
+        if modo == MODO_API_2 and byte == 0x7D:
+            # La segunda mitad puede llegar en otra lectura. Se sigue esperando
+            # hasta tiempoFinal; una lectura vacía no implica un escape roto.
+            escapado = True
+            continue
+
+        return byte
+
+    if escapado:
+        raise ErrorXBee("se recibió un escape API incompleto")
+
+    raise TimeoutError
+
+
+def leerTramaApi(puerto, modo, tiempoEspera=TIEMPO_RESPUESTA_API_S):
+    """Reconstruye una trama, comprueba su checksum y devuelve sus datos internos.
+
+    Resultado: tipo de trama + campos específicos de ese tipo.
+    No devuelve delimitador, longitud ni checksum. Tampoco interpreta ND;
+    esa tarea corresponde a descubrirNodosApi y analizarRespuestaNd.
+    """
+    if modo not in (MODO_API_1, MODO_API_2):
+        raise ErrorXBee("para leer una trama debe seleccionarse API 1 o API 2")
+
+    # Todas las lecturas comparten el mismo límite, que no se reinicia por byte.
+    # read(1) conserva el timeout corto configurado en abrirPuerto.
+    tiempoFinal = time.monotonic() + tiempoEspera
+
+    # Busca el delimitador inicial. Este byte nunca se escapa.
+    while time.monotonic() < tiempoFinal:
+        dato = puerto.read(1)
+
+        if dato == b"\x7E":
+            break
+    else:
+        raise TimeoutError
+
+    byteLongitudAlto = leerByteApi(puerto, modo, tiempoFinal)
+    byteLongitudBajo = leerByteApi(puerto, modo, tiempoFinal)
+    # << 8 desplaza el byte alto ocho posiciones; | reúne ambos bytes.
+    # Ejemplo: 0x01 0x02 ---> 1 * 256 + 2 = 258 bytes.
+    longitud = (byteLongitudAlto << 8) | byteLongitudBajo
+
+    if longitud == 0:
+        raise ErrorXBee("se recibió una trama API sin tipo de trama")
+
+    datosTrama = bytearray()
+
+    for _ in range(longitud):  # _ indica que no necesitamos el número de la vuelta.
+        datosTrama.append(leerByteApi(puerto, modo, tiempoFinal))
+
+    checksum = leerByteApi(puerto, modo, tiempoFinal)
+
+    if ((sum(datosTrama) + checksum) & 0xFF) != 0xFF:
+        raise ErrorXBee("se recibió una trama API con checksum incorrecto")
+
+    return bytes(datosTrama)
+
+
+def siguienteIdTrama():
+    """Genera 1, 2, ..., 255, 1, ... para relacionar ND con sus respuestas."""
+    # % obtiene el resto de la división. Si el valor era 255, vuelve a 1.
+    # Se evita 0 porque desactiva la respuesta del comando API 0x08.
+    siguienteIdTrama.valor = (siguienteIdTrama.valor % 255) + 1
+    return siguienteIdTrama.valor
+
+
+# Las funciones son objetos de Python y pueden tener atributos.
+# .valor recuerda el último identificador entre llamadas a siguienteIdTrama().
+siguienteIdTrama.valor = 0
+
 
 
 # ********************* DESCUBRIMIENTO DE RED ******************** #

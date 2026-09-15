@@ -566,7 +566,7 @@ def enviarComandoTexto(puerto, comando, parametro=None):  # Esta función envía
     if not respuesta:
         raise ErrorXBee(f"AT{comando} devolvió un valor numérico vacío")
 
-    # No se convierte texto a bytes y después a entero: basta una conversión.
+    # Se convierte el texto hexadecimal a un entero.
     try:
         return textoHexadecimalAEntero(respuesta)
     except ValueError as error:
