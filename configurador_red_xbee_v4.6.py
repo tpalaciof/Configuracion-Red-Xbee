@@ -376,52 +376,83 @@ def entrarModoComando(puerto):
             "La secuencia +++ y los tiempos de guarda deben coincidir con CC/GT."
         )
 
-def enviarComandoTexto(puerto, comando, parametro=None):  # Esta función envía comandos AT al XBee una vez que está en modo comando y recibe su respuesta
-    texto = f"AT{comando}"                                # Ejemplo: enviarComandoTexto(puerto, "NI") ---> ATNI\r 
+
+def enviarComandoTexto(puerto, comando, parametro=None):   # Esta función envía comandos AT al XBee una vez que está en modo comando y recibe su respuesta
+    texto = f"AT{comando}"                                 # Ejemplo: enviarComandoTexto(puerto, "NI") ---> ATNI\r
 
     if parametro is not None:
-        texto += parametro
+
+        parametroTexto = parametro if comando == "NI" else f"{parametro:X}"
+
+        """
+        if comando == "NI":
+            parametroTexto = parametro
+        else:
+            parametroTexto = f"{parametro:X}" Si no es NI, se convierte el valor a hexadecimal en mayúsculas como se exige para los parámetros en el manual. Ejemplo: 9 ---> "9", 10 ---> "A", 15 ---> "F", 16 ---> "10"
+        """
+
+        texto += parametroTexto
 
 
     """
     Si se proporcionó un parámetro, lo añade al comando AT. Esto permite modificar el valor del registro.
     Ejemplo:
-    
+
     texto = "ATNI"
     parametro = "COORDINADOR"
-    resultado: "ATNICOORDINADOR"
+    resultado: ATNICOORDINADOR
     """
-    puerto.reset_input_buffer()                     # borra todos los bytes que estuvieran pendientes de lectura.
-    puerto.write((texto + "\r").encode("ascii"))    # Se codifica de ascii, por ejemplo: ATNICOORDINADOR<CR> a bytes 
-    puerto.flush()                                  # Hace que Python espere hasta que los datos pendientes de escritura hayan sido enviados al sistema serial
 
-    respuesta = leerRespuestaTexto(puerto)          # retorna el arreglo de bytes que se encuentre en el buffer de entrada del puerto serial del XBee. 
-                                                    # Se decodifica de bytes y sin espacios ni saltos de línea al principio y al final. Si no hay respuesta, retorna None.
- 
+    puerto.reset_input_buffer()                # borra todos los bytes que estuvieran pendientes de lectura.
+    puerto.write((texto + "\r").encode("ascii"))  # Se codifica, por ejemplo: ATNICOORDINADOR<CR> a bytes ascii
+    puerto.flush()                             # Hace que Python espere hasta que los datos pendientes de escritura hayan sido enviados al sistema serial
+
+    respuesta = leerRespuestaTexto(puerto)    # retorna el arreglo de bytes que se encuentre en el buffer de entrada del puerto serial del XBee.
+                                               # Se decodifica de bytes y sin espacios ni saltos de línea al principio y al final. Si no hay respuesta, retorna None.
+
     if respuesta == "ERROR" or respuesta is None:
         if respuesta == "ERROR":
             raise ErrorXBee(f"el XBee rechazó el comando {texto}")
 
         raise ErrorXBee(f"el XBee no respondió al comando {texto}")
 
-    # Los comandos que modifican un registro y los comandos de control, como
-    # ATWR y ATCN, responden "OK" cuando se ejecutan correctamente.
-    if respuesta == "OK":
+
+    # Los comandos que modifican un registro (Por ejemplo, comandos en los que se les manda un parámetro para establecer su valor)
+    # tienen que responder "OK" cuando se ejecutan correctamente.
+    if parametro is not None:
+        if respuesta != "OK":
+            raise ErrorXBee(
+                f"respuesta inesperada al configurar AT{comando}: {respuesta}"
+            )
+
         return respuesta
+
+
+    # Los comandos de control, como ATWR y ATCN, responden "OK" cuando se ejecutan correctamente.
+    if comando in ("WR", "CN"):
+        if respuesta != "OK":
+            raise ErrorXBee(
+                f"AT{comando} respondió: {respuesta}"
+            )
+
+        return respuesta
+
 
     # ATNI es la única consulta textual utilizada actualmente por el programa.
     # Puede devolver un nombre o una cadena vacía si todavía no se asignó un NI.
     if comando == "NI":
         return respuesta
 
-    # Las demás consultas utilizadas por el programa devuelven números escritos como texto hexadecimal. 
+
+    # Las demás consultas utilizadas por el programa devuelven números escritos como texto hexadecimal.
     # Ejemplo: ATID responde "0009" y se devuelve 9.
 
     if not respuesta:
         raise ErrorXBee(f"AT{comando} devolvió un valor numérico vacío")
-# (Aquí se cambío int(respuesta, 16) )
-    try:                                          # Si lo que queda es una respuesta que no es ninguna de las anteriores... tiene que ser texto que represente un hexadecimal 
-        return int(respuesta, 16) # Se convierte el texto de la respuesta hexadecimal del comando del XBee a un entero.
+
+    try:
+        return int(respuesta, 16)  # Se convierte el texto de la respuesta hexadecimal del comando del XBee a un entero.
+
     except ValueError as error:
         raise ErrorXBee(
             f"AT{comando} no devolvió un hexadecimal válido: {respuesta!r}"
@@ -559,12 +590,12 @@ def pedirId(valorActual):
         """
 
         try:
-            valor = int(respuesta, 16)
+            valor = int(respuesta, 16)                      # lo convierte en entero
         except ValueError:
             print("El ID debe ser un número hexadecimal.")
             continue
 
-        if 0 <= valor <= 0x7FFF:  # Rango del firmware 900HP de este proyecto según el manual es de máximo 0x7FFF.
+        if 0 <= valor <= 0x7FFF:  # Rango del firmware 900HP de este proyecto según el manual es de máximo 0x7FFF = 32767 en entero.
             return valor
 
         print("Para el XBee-PRO 900HP, ID debe estar entre 0x0000 y 0x7FFF.")  # Si no se ejecuta el return, no se sale de la funcion y se imprime el mensaje de error y vuelve a pedir el ID.
@@ -677,49 +708,33 @@ def pedirNuevaConfiguracion(configuracionActual):
 
 # ********************* ESCRITURA Y VERIFICACIÓN ***************** #
 
-def establecerComando(puerto, comando, valor):
-    """Escribe un registro por texto y exige OK; requiere modo comando activo."""
-    # NI ya es texto. Los números se escriben en hexadecimal, sin prefijo 0x.
-    # Ejemplo: valor=26 ---> '1A', no '26' ni un byte binario 0x1A.
-    parametroTexto = valor if comando == "NI" else f"{valor:X}"
-    respuesta = enviarComandoTexto(puerto, comando, parametroTexto)
-
-    if respuesta != "OK":
-        raise ErrorXBee(
-            f"respuesta inesperada al configurar AT{comando}: {respuesta}"
-        )
-
-
-def guardarCambios(puerto):
-    """Envía ATWR para conservar la configuración después de apagar el módulo."""
-    respuesta = enviarComandoTexto(puerto, "WR")
-
-    if respuesta != "OK":
-        raise ErrorXBee(f"ATWR respondió: {respuesta}")
-
-    # WR escribe en memoria no volátil. Se deja una pequeña pausa antes
-    # de transmitir el siguiente comando.
-    time.sleep(0.250)
-
-
 def configurarEnModoComando(puerto, nuevaConfiguracion):
     """Entra con +++, escribe los cuatro parámetros, guarda y sale con ATCN.
 
     No necesita conocer el AP anterior. Toda la sesión usa comandos de texto.
     La comprobación posterior se hace en otra sesión, desde operacionConfigurar.
     """
-    entrarModoComando(puerto)
+
+    if not entrarModoComando(puerto):
+        raise ErrorXBee("No fue posible entrar en modo comando.")
 
     try:
-        # AP se escribe al final; no hace falta cambiar a un analizador API.
         for comando in ("ID", "CE", "NI", "AP"):
-            establecerComando(puerto, comando, nuevaConfiguracion[comando])
 
-        guardarCambios(puerto)
+            parametro = nuevaConfiguracion[comando]
+
+            # Mediante parametro se está estableciendo un nuevo valor al registro del XBee. Ejemplo:enviarComandoTexto(puerto, "ID", "1A") ---> ATID1A\r
+            # Cada vez que se le cambia un valor a un registro mediante un comando, el programa responde con OK. Si no responde OK, significa que hubo un problema.
+            enviarComandoTexto(puerto, comando, parametro)
+
+        # WR escribe en memoria no volátil. Envía ATWR para conservar la configuración después de apagar el módulo.
+        # Los comandos de control como ATWR también tienen que devolver OK.
+        enviarComandoTexto(puerto, "WR")
+
+        time.sleep(0.250)  # Se deja una pequeña pausa antes de transmitir el siguiente comando.
+
     finally:
-        # Un error no debe dejar intencionalmente el módulo en modo comando.
-        # Esto no revierte escrituras parciales; un error nunca se anuncia
-        # como configuración guardada y verificada.
+        # Un error no debe dejar intencionalmente el módulo en modo comando. Esto no revierte escrituras parciales
         salirModoComando(puerto)
 
 
