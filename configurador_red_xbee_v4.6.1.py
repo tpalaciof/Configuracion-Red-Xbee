@@ -709,14 +709,9 @@ def pedirNuevaConfiguracion(configuracionActual):
 # ********************* ESCRITURA Y VERIFICACIÓN ***************** #
 
 def configurarEnModoComando(puerto, nuevaConfiguracion):
-    """Entra con +++, escribe los cuatro parámetros, guarda y sale con ATCN.
-
-    No necesita conocer el AP anterior. Toda la sesión usa comandos de texto.
-    La comprobación posterior se hace en otra sesión, desde operacionConfigurar.
-    """
+    """Entra con +++, escribe los cuatro parámetros, guarda y sale con ATCN."""
 
     entrarModoComando(puerto)
-       
 
     try:
         for comando in ("ID", "CE", "NI", "AP"):
@@ -752,46 +747,68 @@ def comprobarConfiguracion(configuracionLeida, configuracionEsperada):
     return diferencias
 
 
-# *************************** REGISTRO **************************** #
+# *************************** REGISTRO JSON**************************** #
 
 def cargarRegistro():
-    """Lee el JSON de módulos; si aún no existe, devuelve una estructura vacía."""
-    if not RUTA_REGISTRO.exists():
+    """Su propósito es obtener el contenido actual del JSON y devolverlo como un diccionario de Python"""
+
+    if not RUTA_REGISTRO.exists():  # pregunta si el archivo existe. Si no existe, devuelve una estructura inicial del registro. Si por ejemplo registro = cargarRegistro(), y el archivo no existe, entonces registro = {"version": 1, "actualizado": None, "modulos": [], "ultimo_descubrimiento": None}
         return {
             "version": 1,
             "actualizado": None,
             "modulos": [],
             "ultimo_descubrimiento": None,
-        }
+        }  
 
-    try:
-        with RUTA_REGISTRO.open("r", encoding="utf-8") as archivo:
+
+    try:    # with: cierra automáticamente el archivo, incluso si ocurre un error.
+        with RUTA_REGISTRO.open("r", encoding="utf-8") as archivo:  # Si el archivo existe, RUTA_REGISTRO.open(...) abre en modo lectura "r" el archivo cuya ubicación está guardada en RUTA_REGISTRO. encoding="utf-8" indica cómo deben interpretarse los caracteres del archivo. "as archivo" guarda el archivo abierto en una variable llamada archivo
+            registro = json.load(archivo)                           # json.load(archivo) lee el JSON y lo convierte en estructuras de Python
+
+            """
+
+            Por ejemplo, si el archivo contiene:
+
+            {
+            "version": 1,
+            "modulos": []
+            }
+
             registro = json.load(archivo)
+
+            Produce: 
+
+            registro = {
+                "version": 1,
+                "modulos": [],
+            }
+
+            """
+
     except (OSError, json.JSONDecodeError) as error:
         raise ErrorXBee(
             f"no fue posible leer {RUTA_REGISTRO.name}: {error}"
         ) from error
 
     # setdefault añade una clave solo si no existía. Conserva registros previos.
-    registro.setdefault("version", 1)
+    registro.setdefault("version", 1)   
     registro.setdefault("actualizado", None)
-    registro.setdefault("modulos", [])
+    registro.setdefault("modulos", [])                  
     registro.setdefault("ultimo_descubrimiento", None)
     return registro
 
 
 def escribirRegistro(registro):
-    """Actualiza el JSON usando un archivo temporal para evitar dejarlo a medias."""
+    """Recibe un diccionario y lo guarda en xbee_configurados.json"""
     registro["actualizado"] = fechaHoraActual()
-    rutaTemporal = RUTA_REGISTRO.with_suffix(".json.tmp")
+    rutaTemporal = RUTA_REGISTRO.with_suffix(".json.tmp")   # Crear una ruta temporal xbee_configurados.json.tmp
 
     try:
-        with rutaTemporal.open("w", encoding="utf-8") as archivo:
-            json.dump(registro, archivo, indent=4, ensure_ascii=False)
-            archivo.write("\n")
+        with rutaTemporal.open("w", encoding="utf-8") as archivo:       # Escribir primero el archivo temporal
+            json.dump(registro, archivo, indent=4, ensure_ascii=False)  # Escribe registro a archivo. json.dump() convierte el diccionario de Python en JSON
+            archivo.write("\n")                                         # añade un salto de línea al final del archivo.
 
-        # El archivo anterior se sustituye solo después de terminar la escritura.
-        rutaTemporal.replace(RUTA_REGISTRO)
+        rutaTemporal.replace(RUTA_REGISTRO)                             # Solo después de terminar correctamente la escritura se reemplaza el JSON anterior del arhivo termporal al archivo de la ruta verdadera.
     except OSError as error:
         raise ErrorXBee(
             f"no fue posible escribir {RUTA_REGISTRO.name}: {error}"
