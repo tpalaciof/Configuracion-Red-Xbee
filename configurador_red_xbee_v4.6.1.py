@@ -907,7 +907,7 @@ def guardarModuloEnRegistro(configuracion, rutaPuerto):
 
     Como hubo break, entonces el else no se ejecuta y no se añade un nuevo elemento a la lista. La lista sigue teniendo dos elementos, pero el segundo ahora tiene la información actualizada del XBee.
     """                     
-                     
+
     escribirRegistro(registro)  # Guarda ese diccionario en: xbee_configurados.json
 
 
@@ -919,7 +919,7 @@ def mostrarRegistro():
     print()
     print(f"Registro: {RUTA_REGISTRO}")
 
-    if not modulos:
+    if not modulos: # Si la lista de modulos está vacía, entonces imprime el mensaje y retorna de la función.
         print("Todavía no se han registrado módulos.")
         return
 
@@ -934,6 +934,52 @@ def mostrarRegistro():
             f"CE {modulo.get('ce', '?')}"
         )
 
+    """
+    Ejemplo de salida:
+    Registro: xbee_configurados.json
+    
+    Ahora, supongamos que el registro contiene dos módulos:
+
+    indice = 1
+    modulo = {
+    "mac": "0013A20041AAAAAA",
+    "ni": "ROUTER",
+    "id": "0x0009",
+    "ap": 1,
+    "ce": 0
+    }
+
+
+    Por lo tanto, gracias a este último bloque se convierte realmente en:
+
+    print(
+        f"1. ROUTER | "
+        f"MAC 0013A20041AAAAAA | "
+        f"ID 0x0009 | "
+        f"AP 1 | "
+        f"CE 0"
+    )
+
+    y por tanto imprime:
+
+    1. ROUTER | MAC 0013A20041AAAAAA | ID 0x0009 | AP 1 | CE 0
+
+
+    LUEGO , el segundo modulo del registro es:
+
+    indice = 2
+    modulo = {
+    "mac": "0013A20041BBBBBB",
+    "ni": "COORDINADOR",
+    "id": "0x0009",
+    "ap": 1,
+    "ce": 1
+    }
+
+    Entonces imprime:
+
+    2. COORDINADOR | MAC 0013A20041BBBBBB | ID 0x0009 | AP 1 | CE 1
+    """
 
 # *********************** TRAMAS API XBEE ************************ #
 
@@ -1485,5 +1531,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # Al importar el archivo para pruebas no se abre ningún puerto ni menú.
     main()
