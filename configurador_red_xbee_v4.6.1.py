@@ -816,7 +816,7 @@ def escribirRegistro(registro):
 
 
 def guardarModuloEnRegistro(configuracion, rutaPuerto):
-    """Añade o actualiza un módulo verificado, identificándolo por su MAC."""
+    """Esta función añade un XBee nuevo o actualiza uno ya registrado, identificándolo por su MAC."""
     registro = cargarRegistro()
     mac = configuracion["MAC"]
 
@@ -839,14 +839,80 @@ def guardarModuloEnRegistro(configuracion, rutaPuerto):
         if anterior.get("mac") == mac:
             registro["modulos"][indice] = modulo
             break
-    else:  # El else del for se ejecuta solo si no se encontró una MAC y no hubo break.
-        registro["modulos"].append(modulo)
 
-    escribirRegistro(registro)
+    else:  # El else del for se ejecuta solo si no se encontró una MAC y no hubo break. ---> for ... else Ejecuta el else solamente si el for termina de recorrer todos sus elementos sin haber ejecutado un break.
+        registro["modulos"].append(modulo) # La lista registro["modulos"] = [] pasa a [{"mac": "0013A20040B9B5D2", "ni": "COORDINADOR", "id": "0x0009", "ap": 1, "ce": 1, "funcion": "Indirect Msg Coordinator", "puerto_usado": "/dev/ttyUSB0", "fecha_configuracion": "2024-06-15 12:34:56"}]
+                                           # De esta manera se crea el primer elemento de la lista registro["modulos"]
+
+
+    """
+    Supongamos que: 
+
+    registro["modulos"] = [
+    {
+        "mac": "AAA111",
+        "ni": "ROUTER",
+        "id": "0x0009"
+    },
+    {
+        "mac": "BBB222",
+        "ni": "COORDINADOR",
+        "id": "0x0009"
+    }
+    ]
+    Y acabas de configurar un módulo cuya MAC es: 
+    
+    mac = configuracion["MAC"] ="BBB222"
+
+    Y además, modulo contiene la información nueva de ese XBee
+
+    modulo = {
+    "mac": "BBB222",
+    "ni": "NUEVO_NOMBRE",
+    "id": "0x0009",
+    ...
+    }
+
+    Ahora empieza: 
+
+    for indice, anterior in enumerate(registro["modulos"]):     # Donde enumerate() toma cada elemento de la lista y además te da su posición.
+
+    Primera vuelta:
+
+    indice = 0
+
+    anterior = {
+        "mac": "AAA111",
+        "ni": "ROUTER",
+        "id": "0x0009"
+    }
+
+    Y entonces anterior.get("mac") = "AAA111" que no es igual a mac = "BBB222", entonces no entra al if y sigue con la siguiente vuelta del for.
+
+    Segunda vuelta:
+
+    indice = 1
+
+    anterior = {
+        "mac": "BBB222",
+        "ni": "COORDINADOR",
+        "id": "0x0009"
+    }
+
+    Ahora anterior.get("mac") = "BBB222" que es igual a mac = "BBB222", entonces entra al if y ejecuta:
+
+    registro["modulos"][indice] = modulo
+
+    como inidice = 1, entonces registro["modulos"][1] = modulo, es decir, se reemplaza el segundo elemento de la lista por el nuevo diccionario modulo. Y luego hace break y sale del for.
+
+    Como hubo break, entonces el else no se ejecuta y no se añade un nuevo elemento a la lista. La lista sigue teniendo dos elementos, pero el segundo ahora tiene la información actualizada del XBee.
+    """                     
+                     
+    escribirRegistro(registro)  # Guarda ese diccionario en: xbee_configurados.json
 
 
 def mostrarRegistro():
-    """Muestra lo guardado en el JSON; no prueba que los nodos estén encendidos."""
+    """Muestra lo guardado en el JSON"""
     registro = cargarRegistro()
     modulos = registro["modulos"]
 
