@@ -981,6 +981,19 @@ def mostrarRegistro():
     2. COORDINADOR | MAC 0013A20041BBBBBB | ID 0x0009 | AP 1 | CE 1
     """
 
+
+def guardarDescubrimiento(configuracionLocal, nodos):
+    """Guarda la última búsqueda sin borrar el historial de módulos configurados."""
+    registro = cargarRegistro()
+    registro["ultimo_descubrimiento"] = {
+        "fecha": fechaHoraActual(),
+        "id_red": f"0x{configuracionLocal['ID']:04X}",
+        "coordinador_local": configuracionLocal["MAC"],  # Clave conservada del JSON anterior.
+        "nodos": nodos,
+    }
+    escribirRegistro(registro)
+
+
 # *********************** TRAMAS API XBEE ************************ #
 
 # Estas funciones solo se utilizan durante el descubrimiento ND.
@@ -1344,25 +1357,24 @@ def mostrarNodosDescubiertos(nodos):
     print("-" * 74)
 
 
-def guardarDescubrimiento(configuracionLocal, nodos):
-    """Guarda la última búsqueda sin borrar el historial de módulos configurados."""
-    registro = cargarRegistro()
-    registro["ultimo_descubrimiento"] = {
-        "fecha": fechaHoraActual(),
-        "id_red": f"0x{configuracionLocal['ID']:04X}",
-        "coordinador_local": configuracionLocal["MAC"],  # Clave conservada del JSON anterior.
-        "nodos": nodos,
-    }
-    escribirRegistro(registro)
-
-
 # ********************** OPERACIONES DEL MENÚ ******************** #
 
 def operacionLeer(rutaPuerto, baudios):
     """Opción 1: abre el puerto, consulta todo por AT y actualiza el NI del menú."""
-    with abrirPuerto(rutaPuerto, baudios) as puerto:
-        configuracion = leerConfiguracionLocal(puerto)
+    with abrirPuerto(rutaPuerto, baudios) as puerto:    # La función devuelve un objeto de tipo Serial creado por serial.Serial(...) que representa el puerto abierto. Se utiliza con "with" para asegurarse de que se cierre automáticamente al salir del bloque.
+        configuracion = leerConfiguracionLocal(puerto)  #  as puerto significa que guarda ese objeto serial en la variable local puerto.
 
+        """
+        serial.Serial(
+            port=rutaPuerto,
+            baudrate=baudios,
+            bytesize=serial.EIGHTBITS,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            timeout=TIEMPO_ESPERA_SERIAL_S,
+            write_timeout=2.0,
+        )
+        """
     mostrarConfiguracion(configuracion)
     return configuracion["NI"] or None
 
@@ -1370,21 +1382,22 @@ def operacionLeer(rutaPuerto, baudios):
 def operacionConfigurar(rutaPuerto, baudios):
     """Opción 2: lee, pide confirmación, escribe y verifica usando solo texto AT."""
    
-    with abrirPuerto(rutaPuerto, baudios) as puerto:
+    with abrirPuerto(rutaPuerto, baudios) as puerto:            
         configuracionActual = leerConfiguracionLocal(puerto)
 
+    #Al entrar al with, abre la conexión; al salir, Python llama automáticamente a su método de salida y PySerial ejecuta puerto.close()
     mostrarConfiguracion(configuracionActual)
     
     nuevaConfiguracion = pedirNuevaConfiguracion(configuracionActual)
 
-    if not pedirConfirmacion("¿Desea escribir estos valores en el XBee?"):
+    if not pedirConfirmacion("¿Desea escribir estos valores en el XBee?"):  # Si devuelve False, not False = True, entonces entra al if y ejecuta el bloque de código.
         print("Configuración cancelada. No se modificó el XBee.")
         return configuracionActual["NI"] or None
 
     print()
-    print("Escribiendo configuración...")
+    print("Escribiendo configuración...")              # Si sí se desea establecer la configuración...
 
-    with abrirPuerto(rutaPuerto, baudios) as puerto:
+    with abrirPuerto(rutaPuerto, baudios) as puerto:         # Vuelve a abrir /dev/ttyUSBX
         configurarEnModoComando(puerto, nuevaConfiguracion)
 
     # Se abre nuevamente el puerto para comprobar el modo activo y los valores.
@@ -1409,10 +1422,9 @@ def operacionConfigurar(rutaPuerto, baudios):
         La verificación encontró diferencias:
         - AP: esperado 1, leído 0
         """
-        raise ErrorXBee("la configuración no quedó verificada")
+        raise ErrorXBee("la configuración no quedó verificada") # Si hay diferencias, se lanza una excepción y no se guarda en el registro.
 
     # Solo se registra como configurado si la lectura posterior coincide.
-    # Esta lectura verifica registros; no sustituye una prueba de apagado real.
     guardarModuloEnRegistro(configuracionFinal, rutaPuerto)
 
     print("Configuración guardada y verificada correctamente.")
