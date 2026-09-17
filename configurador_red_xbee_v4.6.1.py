@@ -1480,23 +1480,23 @@ def main():
     """Procesa los argumentos y mantiene el menú activo hasta elegir Salir."""
     # argparse permite, por ejemplo:
     # python3 configurador_red_xbee_v3.py --puerto /dev/ttyUSB0 --baudios 9600
-    analizador = argparse.ArgumentParser(
-        description=(
-            "Configura XBee-PRO 900HP DigiMesh por CP2102 sin utilizar XCTU."
+    analizador = argparse.ArgumentParser(                                        # argparse es un módulo de Python que permite recibir opciones escritas en la terminal.
+        description=(                                                            # argparse.ArgumentParser(...) crea un objeto encargado de analizar lo que el usuario escriba
+            "Configura XBee-PRO 900HP DigiMesh por CP2102 sin utilizar XCTU."    # description=... es un texto que se muestra al ejecutar python3 configurador_red_xbee.py --help
         )
     )
     analizador.add_argument(
-        "--puerto",
+        "--puerto",                                     # “Quiero permitir una opción llamada --puerto" Por tanto, el usuario podrá escribir: python3 configurador.py --puerto /dev/ttyUSB0
         help="Puerto serial, por ejemplo /dev/ttyUSB0",
     )
     analizador.add_argument(
-        "--baudios",
-        type=int,
-        default=BAUDIOS,
+        "--baudios",                                    # python3 configurador.py --baudios 9600
+        type=int,                                       # El valor recibido debe convertirse a un entero
+        default=BAUDIOS,                                # Si el usuario no escribe --baudios, utiliza automáticamente el valor de la constante BAUDIOS
         help=f"Velocidad serial actual del XBee; predeterminado {BAUDIOS}",
     )
-    argumentos = analizador.parse_args()
-
+    argumentos = analizador.parse_args()                # Aquí es donde argparse realmente mira lo que se escribió en la terminal. Por ejemplo, si ejecutas: python3 configurador.py --puerto /dev/ttyUSB1 --baudios 115200 
+                                                        # parse_args() analiza eso y crea aproximadamente: argumentos.puerto = "/dev/ttyUSB1" argumentos.baudios = 115200
     baudios = argumentos.baudios
     rutaPuerto, niPuertoActual = seleccionarPuerto(
         argumentos.puerto,
@@ -1504,35 +1504,34 @@ def main():
     )
 
     # Las opciones 1, 2 y 3 devuelven NI para actualizar el encabezado.
-    # No hay ningún proceso de sensores ni lector serial trabajando en paralelo.
     while True:
         mostrarMenu(rutaPuerto, baudios, niPuertoActual)
         opcion = input("Seleccione una opción: ").strip()
 
         try:
-            if opcion == "1":
-                niPuertoActual = operacionLeer(rutaPuerto, baudios)
+            if opcion == "1":                                               # Leer configuración del XBee local
+                niPuertoActual = operacionLeer(rutaPuerto, baudios) 
 
-            elif opcion == "2":
+            elif opcion == "2":                                             # Configurar ID, AP, CE y NI
                 niPuertoActual = operacionConfigurar(rutaPuerto, baudios)
 
-            elif opcion == "3":
+            elif opcion == "3":                                             # Descubrir módulos de la misma red con ND
                 niPuertoActual = operacionDescubrir(rutaPuerto, baudios)
 
-            elif opcion == "4":
+            elif opcion == "4":                                             # Mostrar registro de módulos
                 mostrarRegistro()
 
-            elif opcion == "5":
+            elif opcion == "5":                                             # Cambiar puerto serial
                 rutaPuerto, niPuertoActual = seleccionarPuerto(
                     baudios=baudios,
                 )
 
-            elif opcion == "0":
+            elif opcion == "0":                                             # Salir
                 print("Programa finalizado.")
                 break
 
             else:
-                print("Opción no válida.")
+                print("Opción no válida.")  
 
         except KeyboardInterrupt:
             print("\nOperación cancelada por el usuario.")
