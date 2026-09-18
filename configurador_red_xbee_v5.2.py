@@ -1249,6 +1249,21 @@ def crearTramaApi(datosTrama, modo):
     checksum = 0x64
 
     Donde la condición final es sum(datosTrama) + checksum = 0xFF ---> 0x9B + 0x64 = 0xFF
+
+    el & sirve para: 
+
+      01100100    0x64
+    & 11111111    0xFF
+      --------
+      01100100    0x64
+
+    Por lo tanto, resultado sigue siendo:
+
+    0x64
+
+    No se está comprobando que 0x64 sea igual a 0xFF. Como los ocho bits de 0xFF son unos, conserva los ocho bits de 0x64.
+
+    FInalmente, bytes([0x64]) produce un objeto bytes con el checksum: b"\x64"
     """
 
     contenido = longitud + datosTrama + checksum    # La trama completa sería:  Start Delimiter (0x7E) + contenido (longitud + datosTrama + checksum)
@@ -1296,34 +1311,73 @@ def leerTramaApi(puerto, modo, tiempoEspera=TIEMPO_RESPUESTA_API_S):
     if modo not in (MODO_API_1, MODO_API_2):
         raise ErrorXBee("para leer una trama debe seleccionarse API 1 o API 2")
 
-    # Todas las lecturas comparten el mismo límite, que no se reinicia por byte.
-    # read(1) conserva el timeout corto configurado en abrirPuerto.
     tiempoFinal = time.monotonic() + tiempoEspera
 
     # Busca el delimitador inicial. Este byte nunca se escapa.
     while time.monotonic() < tiempoFinal:
         dato = puerto.read(1)
 
-        if dato == b"\x7E":
+        if dato == b"\x7E":         # ya lo leyó, se sale
             break
     else:
         raise TimeoutError
 
-    byteLongitudAlto = leerByteApi(puerto, modo, tiempoFinal)
-    byteLongitudBajo = leerByteApi(puerto, modo, tiempoFinal)
-    # << 8 desplaza el byte alto ocho posiciones; | reúne ambos bytes.
-    # Ejemplo: 0x01 0x02 ---> 1 * 256 + 2 = 258 bytes.
-    longitud = (byteLongitudAlto << 8) | byteLongitudBajo
+    # Ahora el buffer queda libre del delimitador inicial 
+    byteLongitudAlto = leerByteApi(puerto, modo, tiempoFinal)           # Primera lectura: lee el primer byte de lo que corresponde a longitud
+    byteLongitudBajo = leerByteApi(puerto, modo, tiempoFinal)           # Segunda lectura: como ya se leyó el primer byte, el buffer quedó libre y ahora lee el 2 byte de longitud que corresponde dentro de la secuencia de la trama
 
+   
+   
+    longitud = (byteLongitudAlto << 8) | byteLongitudBajo  # << 8 desplaza el byte alto ocho posiciones; | reúne ambos bytes.
+
+
+    """
+    Supongamos que los bytes de longitud son: 0x01 0x02
+
+    Los valores por separado son:
+
+    byteLongitudAlto = 0x01
+    byteLongitudBajo = 0x02
+
+    Primero se desplaza el alto:
+
+    0x01 << 8
+
+    00000001              byte alto original
+            ↓
+    00000001 00000000     desplazado ocho posiciones
+
+    El byte bajo es:
+
+    00000000 00000010
+
+    Se aplica OR:
+
+       00000001 00000000
+    |  00000000 00000010
+       -----------------
+       00000001 00000010
+
+    El resultado es:
+
+    0x0102
+
+    En decimal:
+
+    258
+
+    Lo que significa que el campo datosTrama contiene exactamente 258 bytes
+
+    """
     if longitud == 0:
         raise ErrorXBee("se recibió una trama API sin tipo de trama")
 
     datosTrama = bytearray()
 
     for _ in range(longitud):  # _ indica que no necesitamos el número de la vuelta.
-        datosTrama.append(leerByteApi(puerto, modo, tiempoFinal))
+        datosTrama.append(leerByteApi(puerto, modo, tiempoFinal))       # Va devolviendo la trama al array, con bytes escapados vueltos a la normalidad (si tiene y está en AP =2)
 
-    checksum = leerByteApi(puerto, modo, tiempoFinal)
+    checksum = leerByteApi(puerto, modo, tiempoFinal)                   # Como el checksum está en la posición longitud +1, ya el resto de bytes se limpiaron del buffer y solo queda ese por leer 
 
     if ((sum(datosTrama) + checksum) & 0xFF) != 0xFF:
         raise ErrorXBee("se recibió una trama API con checksum incorrecto")
@@ -1332,15 +1386,17 @@ def leerTramaApi(puerto, modo, tiempoEspera=TIEMPO_RESPUESTA_API_S):
 
 
 def siguienteIdTrama():
-    """Genera 1, 2, ..., 255, 1, ... para relacionar ND con sus respuestas."""
-    # % obtiene el resto de la división. Si el valor era 255, vuelve a 1.
-    # Se evita 0 porque desactiva la respuesta del comando API 0x08.
+    """Devuelve identificadores consecutivos entre 1 y 255 para las tramas API."""
+
+    # Conserva el valor anterior, le suma uno y vuelve a 1 después de 255.
+    # Nunca devuelve 0 porque ese valor indica que no se solicita respuesta.
     siguienteIdTrama.valor = (siguienteIdTrama.valor % 255) + 1
+
     return siguienteIdTrama.valor
 
 
-# Las funciones son objetos de Python y pueden tener atributos.
-# .valor recuerda el último identificador entre llamadas a siguienteIdTrama().
+# Crea el atributo que almacena el último identificador utilizado.
+# Al comenzar vale 0, por lo que la primera llamada devolverá 1.
 siguienteIdTrama.valor = 0
 
 
