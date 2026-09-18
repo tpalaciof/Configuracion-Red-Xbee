@@ -343,31 +343,45 @@ def abrirPuerto(rutaPuerto, baudios):
 
 # *********************** MODO COMANDO AT ************************ #
 
-def leerRespuestaTexto(puerto, tiempoEspera=TIEMPO_RESPUESTA_AT_S): # Si no se especifica el segundo parámetro de tiempo, se usará el valor predeterminado de TIEMPO_RESPUESTA_AT_S = 2.0 segundos.
-    tiempoFinal = time.monotonic() + tiempoEspera   # time.monotonic() = tiempo inicial en el que inicia la función. En base a esto se calcula el tiempo final que se necesita para salir del while. tiempoFinal es un valor fijo. 
-    respuesta = bytearray()                         # Contenedor vacío para almacenar bytes
+def leerRespuestaTexto(puerto, tiempoEspera=TIEMPO_RESPUESTA_AT_S):
+    # Si no se especifica tiempoEspera, se usa TIEMPO_RESPUESTA_AT_S.
+    tiempoFinal = time.monotonic() + tiempoEspera  # Momento máximo hasta el cual se intentará completar la respuesta.
+    respuesta = bytearray()                        # Almacena los bytes recibidos antes de encontrar \r o \n.
     recibioRespuesta = False
 
-    while time.monotonic() < tiempoFinal: # time.monotonic() inicia como el tiempo inicial, pero dentro del while se va actualizando hasta superar el tiempo final. Es decir, cuando pase el tiempo de espera. 
-        dato = puerto.read(1)             # Intenta leer un byte del puerto serial  
+    while time.monotonic() < tiempoFinal:
+        # Intenta leer un byte del puerto. Por ejemplo, b"O", b"K" o b"\r".
+        # Si no llega ningún byte durante el timeout corto del puerto, devuelve b"".
+        dato = puerto.read(1)
 
         if not dato:
             continue
 
-        if dato in (b"\r", b"\n"):                  # Pregunta si el byte recibido es \r o \n
-            if dato == b"\r" or recibioRespuesta:   # Si el dato es \r, entonces retorna la respuesta. Si el dato es \n y ya se recibió una respuesta anteriormente (recibioRespuesta == True), también retorna la respuesta. 
+        # \r y \n indican el final de una línea de respuesta.
+        if dato in (b"\r", b"\n"):
+
+            # Si llegó \r, se considera terminada la respuesta.
+            # Si llegó \n, solo se termina si anteriormente se recibió contenido.
+            if dato == b"\r" or recibioRespuesta:
+
+                # Interpreta los bytes acumulados como caracteres ASCII y devuelve
+                # un texto str. Ejemplo: bytearray(b"OK") se convierte en "OK".
                 return respuesta.decode(
                     "ascii",
-                    errors="replace",               # Si aparece algún byte que no pueda interpretarse como ASCII, no se provoca una excepción y se reemplaza por un carácter especial.
-                ).strip()                           # elimina espacios y saltos de línea sobrantes al principio y al final.
+                    errors="replace",  # Reemplaza cualquier byte que no pueda interpretarse como ASCII.
+                ).strip()             # Elimina espacios u otros caracteres en blanco de los extremos.
 
-            continue                                # Sirve para ignorar un salto de línea inicial
+            # Ignora un \n recibido antes de que haya contenido en respuesta.
+            continue
 
-        respuesta.extend(dato)                      # Añade la lista de elementos (byte) al final de la lista actual
+        # Añade a respuesta el único byte recibido.
+        # Ejemplo: si respuesta contiene bytearray(b"O") y dato es b"K",
+        # después de extend contiene bytearray(b"OK").
+        respuesta.extend(dato)
         recibioRespuesta = True
 
+    # No se recibió una línea completa antes de alcanzar tiempoFinal.
     return None
-
 
 def entrarModoComando(puerto, tiempoGuarda=TIEMPO_GUARDA_S):
     puerto.reset_input_buffer()     # borra todos los bytes que estuvieran pendientes de lectura.
@@ -396,7 +410,7 @@ def entrarModoComando(puerto, tiempoGuarda=TIEMPO_GUARDA_S):
 
         respuesta = leerRespuestaTexto(
             puerto,
-            min(0.6, tiempoRestante),
+            min(0.6, tiempoRestante),          # Usa el menor valor entre 0.6 segundos y el tiempo restante. Hace que cada lectura dure como máximo 0.6 segundos, pero que la última lectura no exceda el tiempo total restante.
         )
 
     if respuesta != "OK":                       # Según el manual, el equipo debe responder con OK\r una vez entre en el modo comnando
@@ -503,7 +517,7 @@ def enviarComandoTexto(puerto, comando, parametro=None):   # Esta función enví
         raise ErrorXBee(f"AT{comando} devolvió un valor numérico vacío")
 
     try:
-        return int(respuesta, 16)  # Se convierte el texto de la respuesta hexadecimal del comando del XBee a un entero.
+        return int(respuesta, 16)  #  Convierte una cadena completa que representa un número hexadecimal en un entero
 
     except ValueError as error:
         raise ErrorXBee(
@@ -1250,15 +1264,15 @@ def leerByteApi(puerto, modo, tiempoFinal):
     escapado = False
 
     while time.monotonic() < tiempoFinal:
-        dato = puerto.read(1)               #Solicita un byte al puerto.
+        dato = puerto.read(1)               #Solicita un byte al puerto. read(1) no devuelve directamente un número. Devuelve un objeto bytes, es decir, un contenedor de bytes (en este caso, de un byte) de la forma b"O" por ejemplo
 
         if not dato:
             continue
 
-        byte = dato[0]  # b'\x88'[0] es el entero 136, equivalente a 0x88. La función devuelve enteros entre 0 y 255
+        byte = dato[0]  # Para obtener el valor numérico de ese único byte del objeto bytes  b"\x5E", se usa byte = dato[0] --->  dato = b"\x5E" ---> byte = dato[0] = 95 (decimal) = x5E (Hexa)
 
         if escapado:            # Esta condición solamente será verdadera si en la vuelta anterior se recibió 0x7D
-            return byte ^ 0x20
+            return byte ^ 0x20  # Aunque ambos operandos se escriban como enteros, Python aplica XOR entre sus bits
 
         if modo == MODO_API_2 and byte == 0x7D:     # Solo en el modo AP =2 hay datos escapados, y el indicador de que el próximo byte es escapado es 0x7D
             escapado = True
