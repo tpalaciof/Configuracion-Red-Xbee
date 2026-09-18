@@ -1150,21 +1150,48 @@ def guardarDescubrimiento(configuracionLocal, nodos):
 # 'modo' es MODO_API_1 o MODO_API_2: son constantes de texto del programa,
 # no los números 1 y 2 que se guardan en el parámetro AP del XBee.
 
+# Operación API (AP = 1): estructura de la trama sin escapes.
+# | Campo               | Byte  | Descripción                                      |
+# |---------------------|-------|--------------------------------------------------|
+# | Delimitador inicial | 1     | 0x7E                                             |
+# | Longitud            | 2 - 3 | Byte más significativo, byte menos significativo |
+# | Datos de la trama   | 4 - n | Estructura específica del tipo de trama          |
+# | Checksum            | n + 1 | 1 byte                                           |
+
+# Operación API con caracteres escapados (AP = 2): solo UART, no SPI.
+# | Campo               | Byte  | Descripción                                      | Escape si hace falta |
+# |---------------------|-------|--------------------------------------------------|----------------------|
+# | Delimitador inicial | 1     | 0x7E                                             | No                   |
+# | Longitud            | 2 - 3 | Byte más significativo, byte menos significativo | Sí                   |
+# | Datos de la trama   | 4 - n | Estructura específica del tipo de trama          | Sí                   |
+# | Checksum            | n + 1 | 1 byte                                           | Sí                   |
+# Las posiciones de API 2 indican bytes lógicos; los escapes pueden ocupar
+# bytes adicionales en UART. El delimitador inicial nunca se escapa.
+
 def escaparDatosApi(datos):
     """Prepara los bytes reservados para transmitirlos en API 2."""
-    resultado = bytearray()
+    resultado = bytearray() # Crea un arreglo de bytes modificable
 
-    for byte in datos:  # Al recorrer bytes se obtiene un entero de 0 a 255.
-        if byte in (0x7E, 0x7D, 0x11, 0x13):
-            resultado.append(0x7D)         # Avisa que el siguiente byte está escapado.
-            resultado.append(byte ^ 0x20)  # ^ es XOR; no es una potencia.
+
+    """
+    Data bytes that need to be escaped: 
+
+    0x7E --- Frame Delimiter
+    0x7D --- Escape
+    0x11 --- XON
+    0x13 --- XOFF
+
+    """
+    for byte in datos:  # Al recorrer bytes se obtiene un entero de 0 a 255. Por ejemplo: datos = b"\x7E\x01" ---> Primera vuelta: byte = 126 = 0x7E, Segunda vuelta: byte = 1   = 0x01
+        if byte in (0x7E, 0x7D, 0x11, 0x13):    # Cuando encuentra un byte reservado
+            resultado.append(0x7D)              # A palabras del manual del fabricante: "specific data values must be escaped (flagged) so they do not interfere with the data frame sequencing. To escape an interfering data byte, insert0x7D and follow it with the byte to be escaped XOR’d with 0x20."
+            resultado.append(byte ^ 0x20)       # ^ es XOR; no es una potencia.
         else:
             resultado.append(byte)
 
-    # Ejemplo: 0x7E se transmite como 0x7D 0x5E.
-    # El receptor recupera 0x7E aplicando 0x5E ^ 0x20.
-    # No se cifra ni se modifica el significado de los datos.
-    return bytes(resultado)
+    # Ejemplo: 0x7E se transmite como 0x7D 0x7E^0x20  (lo cual da 0x5E).
+    # El receptor recupera 0x7E aplicando 0x5E ^ 0x20. Solo se cambia temporalmente su representación en el puerto serial.
+    return bytes(resultado) # Al final se convierte a bytes, que es inmutable
 
 
 def crearTramaApi(datosTrama, modo):
@@ -1172,47 +1199,74 @@ def crearTramaApi(datosTrama, modo):
     if modo not in (MODO_API_1, MODO_API_2):
         raise ErrorXBee("para crear una trama debe seleccionarse API 1 o API 2")
 
-    # La longitud cuenta solo datosTrama, antes de agregar escapes.
-    # to_bytes(2, 'big') ocupa dos bytes: el más significativo va primero.
-    # Ejemplo: cuatro bytes de datos ---> longitud b'\x00\x04'.
-    longitud = len(datosTrama).to_bytes(2, byteorder="big")
+    
+    
+    
+    longitud = len(datosTrama).to_bytes(2, byteorder="big") # La longitud cuenta solo datosTrama, antes de agregar escapes. # to_bytes(2, 'big') ocupa dos bytes: el más significativo va primero.
+    """
+    Ejemplo: 
+    datosTrama = 08 01 4E 44
 
-    # & 0xFF conserva los ocho bits inferiores del resultado.
-    # La suma de datosTrama + checksum debe terminar en 0xFF.
-    # No se incluyen el delimitador ni la longitud en esta suma.
-    checksum = bytes([(0xFF - sum(datosTrama)) & 0xFF])
-    contenido = longitud + datosTrama + checksum
+    datosTrama = bytes([
+    0x08,  # Tipo de trama AT
+    0x01,  # Identificador
+    0x4E,  # N
+    0x44,  # D
+    ])
+
+    Hay cuatro bytes de datos, len(datosTrama) == 4 
+    Que tienen que ser representados en 2 bytes, por lo tanto 4 = 00 04
+    De esta manera: ---> longitud = b'\x00\x04'.
+    """
+
+
+    # XBee establece que: La suma de los bytes de datosTrama más el checksum debe terminar en 0xFF
+    # Por lo tanto, sum(datosTrama) + checksum = 0xFF
+    # checksum = 0xFF - sum(datosTrama)
+
+    checksum = bytes([(0xFF - sum(datosTrama)) & 0xFF]) # 11111111 = 255 = 0xFF. El operador & es AND bit a bit. Aplicarlo con 0xFF conserva solamente los ocho bits inferiores.
+
+    """
+    datosTrama = 08 01 4E 44
+    La suma es 0x08 + 0x01 + 0x4E + 0x44 = 0x9B (155 en decimal)
+
+    Entonces: 
+    checksum = 0xFF - 0x9B  (0xFF es 255 en decimal, entonces 255-155 = 100)
+    checksum = 0x64
+
+    Donde la condición final es sum(datosTrama) + checksum = 0xFF ---> 0x9B + 0x64 = 0xFF
+    """
+
+    contenido = longitud + datosTrama + checksum    # La trama completa sería:  Start Delimiter (0x7E) + contenido (longitud + datosTrama + checksum)
 
     if modo == MODO_API_2:
         contenido = escaparDatosApi(contenido)
 
-    return b"\x7E" + contenido  # El delimitador inicial nunca se escapa.
+    return b"\x7E" + contenido  # Trama completa. El delimitador inicial nunca se escapa.
 
 
 def leerByteApi(puerto, modo, tiempoFinal):
-    """Lee un byte lógico; en API 2 puede necesitar dos bytes del puerto."""
+    """Leer y devolver un byte original de la trama, eliminando el escape de API 2 cuando sea necesario."""
     escapado = False
 
     while time.monotonic() < tiempoFinal:
-        dato = puerto.read(1)
+        dato = puerto.read(1)               #Solicita un byte al puerto.
 
         if not dato:
             continue
 
-        byte = dato[0]  # b'\x88'[0] es el entero 136, equivalente a 0x88.
+        byte = dato[0]  # b'\x88'[0] es el entero 136, equivalente a 0x88. La función devuelve enteros entre 0 y 255
 
-        if escapado:
+        if escapado:            # Esta condición solamente será verdadera si en la vuelta anterior se recibió 0x7D
             return byte ^ 0x20
 
-        if modo == MODO_API_2 and byte == 0x7D:
-            # La segunda mitad puede llegar en otra lectura. Se sigue esperando
-            # hasta tiempoFinal; una lectura vacía no implica un escape roto.
+        if modo == MODO_API_2 and byte == 0x7D:     # Solo en el modo AP =2 hay datos escapados, y el indicador de que el próximo byte es escapado es 0x7D
             escapado = True
             continue
 
-        return byte
+        return byte # Se llega aquí cuando: el byte no está precedido por un escape o se está utilizando API 1, donde no se procesan escapes.
 
-    if escapado:
+    if escapado:                                                # Se recibió 7D pero nunca llegó el byte siguiente
         raise ErrorXBee("se recibió un escape API incompleto")
 
     raise TimeoutError
