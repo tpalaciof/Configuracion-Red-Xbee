@@ -2158,6 +2158,9 @@ def seleccionarModuloRemoto(nodos):
     for indice, nodo in enumerate(nodos, start=1):
         print(f"  {indice}. {nodo['ni'] or '(sin NI)'} | MAC {nodo['mac']} | ID {nodo['id']}")
     print("  0. Volver sin configurar")
+    print("\nSi se requiere otro: por favor seleccione la opción 3 del menú: "
+                          "Descubrir módulos Xbee.\n")
+    
     while True:
         respuesta = input("Seleccione el módulo: ").strip()
         if respuesta == "0":
@@ -2451,8 +2454,6 @@ def operacionConfigurarRemoto(rutaPuerto, baudios):
                     print("No se encuentra ningún módulo guardado disponible en el registro, "
                           "por favor seleccionar la opción 3 del menú: Descubrir módulos Xbee.")
                     return configuracion["NI"] or None
-                print("Si se requiere otro: por favor seleccione la opción 3 del menú: "
-                      "Descubrir módulos Xbee.")
 
             nodo = seleccionarModuloRemoto(nodos)
             if nodo is None:
