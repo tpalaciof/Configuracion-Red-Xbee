@@ -48,6 +48,7 @@ Requisito:
 import argparse
 import json
 import signal
+import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -905,18 +906,23 @@ def pedirNi(valorActual):
 
 def pedirNuevaConfiguracion(configuracionActual):
     """Reúne y muestra los cuatro valores; todavía no escribe nada en el XBee."""
-    print()
-    print("Introduzca la nueva configuración.")
-    print("Presione Enter para conservar el valor mostrado entre corchetes.")
-    print()
+    nueva = {}
+    for comando, pedirValor in (
+        ("ID", pedirId),
+        ("AP", pedirAp),
+        ("CE", pedirCe),
+        ("NI", pedirNi),
+    ):
+        limpiarTerminal()
+        mostrarConfiguracion(configuracionActual)
+        print()
+        print("Introduzca la nueva configuración.")
+        print("Presione Enter para conservar el valor mostrado entre corchetes. Presione CTRL + C para cancelar.")
+        print()
+        nueva[comando] = pedirValor(configuracionActual[comando])
 
-    nueva = {
-        "ID": pedirId(configuracionActual["ID"]),
-        "AP": pedirAp(configuracionActual["AP"]),
-        "CE": pedirCe(configuracionActual["CE"]),
-        "NI": pedirNi(configuracionActual["NI"]),
-    }
-
+    limpiarTerminal()
+    mostrarConfiguracion(configuracionActual)
     print()
     print("Configuración que se escribirá")
     print(f"  ID: 0x{nueva['ID']:04X}")
@@ -1145,11 +1151,11 @@ def guardarModuloEnRegistro(configuracion, rutaPuerto, macLocal=None):
     escribirRegistro(registro)  # Guarda ese diccionario en: xbee_configurados.json
 
 
-def mostrarRegistro():
+def mostrarRegistro(enum = None):
     """Muestra lo guardado en el JSON"""
     registro = cargarRegistro()
     modulos = registro["modulos"]
-
+    
     print()
     print(f"Registro: {RUTA_REGISTRO}")
 
@@ -1159,17 +1165,31 @@ def mostrarRegistro():
 
     print()
 
-    for indice, modulo in enumerate(modulos, start=1):
-        print(
-            f"{indice}. {modulo.get('ni', '(sin NI)')} | "
-            f"MAC {modulo.get('mac', '?')} | "
-            f"ID {modulo.get('id', '?')} | "
-            f"AP {modulo.get('ap', '?')} | "
-            f"CE {modulo.get('ce', '?')}"
-        )
-        if modulo.get("ids_por_verificar"):
-            print("   Configuración pendiente de verificar; ID posibles: "
-                  + ", ".join(modulo["ids_por_verificar"]))
+    if enum != None:
+        for indice, modulo in enumerate(modulos, start=1):
+                print(
+                    f"{"-"} {modulo.get('ni', '(sin NI)')} | "
+                    f"MAC {modulo.get('mac', '?')} | "
+                    f"ID {modulo.get('id', '?')} | "
+                    f"AP {modulo.get('ap', '?')} | "
+                    f"CE {modulo.get('ce', '?')}"
+                )
+                if modulo.get("ids_por_verificar"):
+                    print("   Configuración pendiente de verificar; ID posibles: "
+                          + ", ".join(modulo["ids_por_verificar"])) 
+
+    else: 
+        for indice, modulo in enumerate(modulos, start=1):
+            print(
+                f"{indice}. {modulo.get('ni', '(sin NI)')} | "
+                f"MAC {modulo.get('mac', '?')} | "
+                f"ID {modulo.get('id', '?')} | "
+                f"AP {modulo.get('ap', '?')} | "
+                f"CE {modulo.get('ce', '?')}"
+            )
+            if modulo.get("ids_por_verificar"):
+                print("   Configuración pendiente de verificar; ID posibles: "
+                    + ", ".join(modulo["ids_por_verificar"]))
 
     """
     Ejemplo de salida:
@@ -2351,7 +2371,6 @@ def operacionConfigurar(rutaPuerto, baudios):
         configuracionActual = leerConfiguracionLocal(puerto)
 
     #Al entrar al with, abre la conexión; al salir, Python llama automáticamente a su método de salida y PySerial ejecuta puerto.close()
-    mostrarConfiguracion(configuracionActual)
     
     nuevaConfiguracion = pedirNuevaConfiguracion(configuracionActual)
 
@@ -2461,8 +2480,6 @@ def operacionConfigurarRemoto(rutaPuerto, baudios):
                 return configuracion["NI"] or None
             cambiarIdTemporal(puerto, modo, int(nodo["id"], 16))
             actual = leerConfiguracionRemota(puerto, modo, nodo["mac"])
-            print(f"\nMódulo remoto seleccionado: {actual['MAC']}")
-            mostrarConfiguracion(actual)
             nueva = pedirNuevaConfiguracion(actual)
             if nueva["ID"] != actual["ID"]:
                 print("El nuevo ID separará este módulo de su red actual. Para verificarlo "
@@ -2501,6 +2518,12 @@ def mostrarMenu(rutaPuerto, baudios, niPuertoActual=None):
 
 # ************************ PROGRAMA PRINCIPAL ********************* #
 
+def limpiarTerminal():
+    """Limpia la pantalla y deja el cursor al principio en una terminal real."""
+    if sys.stdout.isatty():
+        print("\033[2J\033[H", end="", flush=True)
+
+
 def main():
     """Procesa los argumentos y mantiene el menú activo hasta elegir Salir."""
     # argparse permite, por ejemplo:
@@ -2535,9 +2558,13 @@ def main():
     # print(f"GT configurado en {GT_CONFIGURADOR_MS} ms.")
 
     # Las opciones 1, 2, 3 y 5 devuelven el NI local para actualizar el encabezado.
+    limpiarTerminal()
     while True:
         mostrarMenu(rutaPuerto, baudios, niPuertoActual)
         opcion = input("Seleccione una opción: ").strip()
+        pausaAntesDelMenu = opcion != "6"
+        if opcion in ("0", "1", "2", "3", "4", "5", "6"):
+            limpiarTerminal()
 
         try:
             if opcion == "1":                                               # Leer configuración del XBee local
@@ -2546,13 +2573,15 @@ def main():
             elif opcion == "2":                                             # Configurar ID, AP, CE y NI
                 niPuertoActual = operacionConfigurar(rutaPuerto, baudios)
 
-            elif opcion == "3":                                             # Descubrir módulos Xbee
+            elif opcion == "3":                                              # Descubrir módulos Xbee
+                mostrarRegistro(1)                                            
                 niPuertoActual = operacionDescubrir(rutaPuerto, baudios)
 
             elif opcion == "4":                                             # Mostrar registro de módulos
                 mostrarRegistro()
 
-            elif opcion == "5":                                             # Configurar a distancia otro XBee
+            elif opcion == "5":                                            # Configurar a distancia otro XBee
+                mostrarRegistro(1)
                 niPuertoActual = operacionConfigurarRemoto(rutaPuerto, baudios)
 
             elif opcion == "6":                                             # Cambiar puerto serial
@@ -2571,10 +2600,21 @@ def main():
 
         except KeyboardInterrupt:
             print("\nOperación cancelada por el usuario.")
+            pausaAntesDelMenu = True
 
         except (ErrorXBee, serial.SerialException, OSError, ValueError) as error:
             # Se informa el fallo y se vuelve al menú; no se anuncia éxito.
             print(f"\nError: {error}")
+            pausaAntesDelMenu = True
+
+        # Mantiene visibles las lecturas y los resultados hasta que el usuario
+        # decida volver. Al cambiar de puerto se muestra el menú de inmediato.
+        if pausaAntesDelMenu:
+            try:
+                input("\nPresione Enter para volver al menú...")
+            except (KeyboardInterrupt, EOFError):
+                print()
+        limpiarTerminal()
 
 
 if __name__ == "__main__":
