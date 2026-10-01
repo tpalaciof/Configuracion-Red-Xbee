@@ -770,8 +770,9 @@ def mostrarConfiguracion(configuracion):
     # AP describe la operación normal; Lectura describe cómo se consultó.
     # Así AP=1/2 y modo comando AT pueden aparecer juntos sin contradicción.
     # Las consultas locales usan modo comando; las remotas usan 0x17/0x97.
-    lectura = configuracion.get("LECTURA", descripcionModo(MODO_COMANDO))
-    print(f"Lectura   : {lectura}")
+
+    #lectura = configuracion.get("LECTURA", descripcionModo(MODO_COMANDO))
+    #print(f"Lectura   : {lectura}")
 
     if configuracion.get("BD") is not None:
         bd = configuracion["BD"]
@@ -830,7 +831,6 @@ def pedirAp(valorActual):
     """ Pide el modo de operación serial que tendrá el XBee después de salir de modo comando.
         Solo cambia el formato usado durante la operación normal del módulo.
     """
-    print()
     print("AP - Modo de operación serial")
     print("  0. Transparent Mode")
     print("  1. API Mode Without Escapes")
@@ -851,7 +851,6 @@ def pedirAp(valorActual):
 
 def pedirCe(valorActual):
     """Conserva las opciones de rol utilizadas en el montaje: CE=0 o CE=1."""
-    print()
     print("CE - Routing/Messaging Mode")
     print("  0. Standard Router")
     print("  1. Indirect Msg Coordinator")
@@ -2217,7 +2216,7 @@ def leerConfiguracionRemota(puerto, modo, mac):
             if error.estado not in (1, 2, 3):
                 raise
             configuracion[comando] = None
-    configuracion["LECTURA"] = "AT remoto por radio (API 0x17/0x97)"
+    # configuracion["LECTURA"] = "AT remoto por radio (API 0x17/0x97)"
     return configuracion
 
 
@@ -2516,7 +2515,6 @@ def dibujitoMenu():
 
 def lineaMenu(rutaPuerto, baudios, niPuertoActual=None, idRedActual=None):
     """Muestra el puerto y los últimos NI e ID locales confirmados."""
-    print()
     print("=" * 58)
     print("CONFIGURADOR DE RED XBEE-PRO 900HP DIGIMESH")
     print("=" * 58)
