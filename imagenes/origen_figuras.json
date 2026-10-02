@@ -1,0 +1,260 @@
+[
+  {
+    "archivo": "01_enlace_uart.png",
+    "pagina_pdf_y_impresa": 38,
+    "rectangulo_puntos": [
+      95,
+      70,
+      575,
+      235
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 2
+  },
+  {
+    "archivo": "02_byte_uart.png",
+    "pagina_pdf_y_impresa": 38,
+    "rectangulo_puntos": [
+      98,
+      368,
+      430,
+      480
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 3
+  },
+  {
+    "archivo": "03_transmision_digimesh.png",
+    "pagina_pdf_y_impresa": 50,
+    "rectangulo_puntos": [
+      98,
+      74,
+      487,
+      327
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 4
+  },
+  {
+    "archivo": "04_sintaxis_at.png",
+    "pagina_pdf_y_impresa": 51,
+    "rectangulo_puntos": [
+      98,
+      442,
+      545,
+      603
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 6
+  },
+  {
+    "archivo": "05_formatos_api.png",
+    "pagina_pdf_y_impresa": 116,
+    "rectangulo_puntos": [
+      69,
+      210,
+      545,
+      720
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 9
+  },
+  {
+    "archivo": "06_escapes_api.png",
+    "pagina_pdf_y_impresa": 117,
+    "rectangulo_puntos": [
+      70,
+      68,
+      545,
+      405
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 10
+  },
+  {
+    "archivo": "07_intercambio_at_local.png",
+    "pagina_pdf_y_impresa": 119,
+    "rectangulo_puntos": [
+      98,
+      65,
+      385,
+      260
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 11
+  },
+  {
+    "archivo": "08_intercambio_datos.png",
+    "pagina_pdf_y_impresa": 119,
+    "rectangulo_puntos": [
+      98,
+      281,
+      563,
+      478
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 18
+  },
+  {
+    "archivo": "09_intercambio_at_remoto.png",
+    "pagina_pdf_y_impresa": 119,
+    "rectangulo_puntos": [
+      98,
+      493,
+      545,
+      694
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 14
+  },
+  {
+    "archivo": "10_trama_08.png",
+    "pagina_pdf_y_impresa": 125,
+    "rectangulo_puntos": [
+      100,
+      74,
+      545,
+      362
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 12
+  },
+  {
+    "archivo": "11_trama_88.png",
+    "pagina_pdf_y_impresa": 141,
+    "rectangulo_puntos": [
+      70,
+      251,
+      545,
+      630
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 13
+  },
+  {
+    "archivo": "12_trama_17_a.png",
+    "pagina_pdf_y_impresa": 136,
+    "rectangulo_puntos": [
+      70,
+      70,
+      545,
+      688
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 15
+  },
+  {
+    "archivo": "13_trama_17_b.png",
+    "pagina_pdf_y_impresa": 137,
+    "rectangulo_puntos": [
+      99,
+      68,
+      548,
+      729
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 16
+  },
+  {
+    "archivo": "14_trama_97.png",
+    "pagina_pdf_y_impresa": 163,
+    "rectangulo_puntos": [
+      69,
+      211,
+      548,
+      697
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 17
+  },
+  {
+    "archivo": "15_trama_90_a.png",
+    "pagina_pdf_y_impresa": 153,
+    "rectangulo_puntos": [
+      70,
+      261,
+      545,
+      668
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 19
+  },
+  {
+    "archivo": "16_trama_90_b.png",
+    "pagina_pdf_y_impresa": 154,
+    "rectangulo_puntos": [
+      100,
+      65,
+      548,
+      191
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 20
+  },
+  {
+    "archivo": "17_nd_manual.png",
+    "pagina_pdf_y_impresa": 90,
+    "rectangulo_puntos": [
+      100,
+      472,
+      545,
+      730
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 22
+  },
+  {
+    "archivo": "18_opciones_no_nt.png",
+    "pagina_pdf_y_impresa": 88,
+    "rectangulo_puntos": [
+      99,
+      185,
+      549,
+      728
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 21
+  },
+  {
+    "archivo": "19_ce.png",
+    "pagina_pdf_y_impresa": 84,
+    "rectangulo_puntos": [
+      99,
+      68,
+      548,
+      417
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 5
+  },
+  {
+    "archivo": "20_gt_ct.png",
+    "pagina_pdf_y_impresa": 112,
+    "rectangulo_puntos": [
+      99,
+      69,
+      548,
+      354
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 8
+  },
+  {
+    "archivo": "21_wr_ac.png",
+    "pagina_pdf_y_impresa": 77,
+    "rectangulo_puntos": [
+      69,
+      69,
+      548,
+      700
+    ],
+    "fuente": "Digi 90002173 Y",
+    "numero_en_documento": 7
+  },
+  {
+    "archivo": "22_captura_proyecto.png",
+    "fuente": "info_configurador_xbee(1).docx, word/media/image13.png",
+    "nota": "Captura aportada, no prueba ejecutada durante la documentación",
+    "numero_en_documento": 1
+  }
+]
