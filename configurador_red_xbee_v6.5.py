@@ -2515,9 +2515,9 @@ def dibujitoMenu():
 
 def lineaMenu(rutaPuerto, baudios, niPuertoActual=None, idRedActual=None):
     """Muestra el puerto y los últimos NI e ID locales confirmados."""
-    print("=" * 58)
+    print("=" * 63)
     print("CONFIGURADOR DE RED XBEE-PRO 900HP DIGIMESH")
-    print("=" * 58)
+    print("=" * 63)
 
     lineaPuerto = f"Puerto actual: {rutaPuerto} | {baudios} baudios"
 
