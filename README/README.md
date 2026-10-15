@@ -4,7 +4,7 @@ Esta documentación explica el funcionamiento del archivo `configurador_red_xbee
 
 El programa configura radios XBee; el receptor de mediciones del ESP32 es otro programa. El configurador usa comandos AT de texto para las operaciones locales y tramas API para descubrir nodos, visitar otras redes y configurar módulos remotos. Su funcionamiento depende de distinguir cuatro cosas: el formato de la comunicación UART, el estado de modo comando, la configuración de radio y los valores almacenados en memoria no volátil.
 
-**Archivo examinado:** 2650 líneas. **Fecha de elaboración:** 2 de octubre de 2026. **Manual principal:** Digi *XBee-PRO 900HP/XSC RF Modules*, documento 90002173, revisión Y, septiembre de 2021.
+**Archivo examinado:** 2650 líneas. **Fecha de elaboración:** 2 de octubre de 2026. **Manual principal:** `XBee-PRO_900HP_XSC_RF_Modules.pdf`, de Digi International (documento 90002173, revisión Y, septiembre de 2021).
 
 La explicación se apoya en una lectura completa del código y del material pertinente del fabricante. Las comprobaciones realizadas para este documento son de análisis y simulación del procesamiento de bytes; no constituyen ensayos con los radios físicos. Los fragmentos del código se reproducen con fines explicativos. El archivo fuente suministrado no se modifica.
 
@@ -12,7 +12,7 @@ La explicación se apoya en una lectura completa del código y del material pert
 
 Para comprender la base técnica, leer primero los capítulos 1 a 5. Para seguir una operación completa, consultar los capítulos de configuración local, descubrimiento y configuración remota. El catálogo del final permite localizar cada función y sus líneas de origen.
 
-Las referencias **[M, p. n]** corresponden al [manual de Digi incluido en el paquete](fuentes/Manual_Digi_90002173_Y.pdf). La página impresa coincide con la posición de página del PDF utilizado. Las referencias **[C, Lx–Ly]** indican líneas del [código fuente incluido](fuentes/configurador_red_xbee_v6.5.py). **[P]** designa las capturas incluidas en `info_configurador_xbee(1).docx`.
+Las referencias **[M, p. n]** corresponden al [XBee-PRO_900HP_XSC_RF_Modules.pdf](fuentes/XBee-PRO_900HP_XSC_RF_Modules.pdf). La página impresa coincide con la posición de página del PDF utilizado. Las referencias **[C, Lx–Ly]** indican líneas del [código fuente incluido](fuentes/configurador_red_xbee_v6.5.py). **[P]** designa las capturas incluidas en `info_configurador_xbee(1).docx`.
 
 El Markdown utiliza imágenes relativas dentro de `imagenes/`. Para conservar las figuras y abrir las referencias sin conexión, extraer el ZIP completo y mantener la estructura de carpetas. Los diagramas Mermaid complementarios requieren un visor compatible; las imágenes extraídas del manual son PNG y no dependen de Mermaid.
 
@@ -111,7 +111,7 @@ flowchart TD
 
 ![Interfaz serial y enlace por radio del fabricante](imagenes/01_enlace_uart.png)
 
-*Figura 2. Interfaz UART y enlace RF. Extraída de Digi 90002173 Y, p. 38. Las líneas de control del esquema ilustran capacidades del equipo; este código no habilita control de flujo RTS/CTS.*
+*Figura 2. Interfaz UART y enlace RF. Extraída de `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 38. Las líneas de control del esquema ilustran capacidades del equipo; este código no habilita control de flujo RTS/CTS.*
 
 <a id="seccion-2-2"></a>
 
@@ -134,7 +134,7 @@ El montaje requiere lógica y alimentación compatibles con el módulo, normalme
 
 ![Byte transmitido por UART según Digi](imagenes/02_byte_uart.png)
 
-*Figura 3. Transmisión UART del byte 0x1F, Digi 90002173 Y, p. 38.*
+*Figura 3. Transmisión UART del byte 0x1F, `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 38.*
 
 El dibujo transmite los **bits del byte** empezando por el menos significativo. Esto no contradice que un número de **varios bytes** en una trama API se codifique en orden big-endian. Son dos órdenes distintos: bits dentro de un byte UART y bytes dentro de un campo del protocolo.
 
@@ -221,7 +221,7 @@ En reposo el equipo atiende sus interfaces; al transmitir realiza las acciones d
 
 ![Decisiones de transmisión DigiMesh](imagenes/03_transmision_digimesh.png)
 
-*Figura 4. Búsqueda de ruta, transmisión y retorno al reposo. Digi 90002173 Y, p. 50.*
+*Figura 4. Búsqueda de ruta, transmisión y retorno al reposo. `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 50.*
 
 Un fallo de respuesta remota puede producirse por alcance, ruta, congestión, incompatibilidad, suspensión o ausencia del equipo. El configurador no deduce una causa física concreta únicamente a partir de un timeout.
 
@@ -256,7 +256,7 @@ Los bits `0x01` y `0x04` no pueden estar activos simultáneamente. El menú impl
 
 ![Definición de CE como campo de bits](imagenes/19_ce.png)
 
-*Figura 5. CE, opciones de mensajería y enrutamiento. Digi 90002173 Y, p. 84.*
+*Figura 5. CE, opciones de mensajería y enrutamiento. `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 84.*
 
 La recomendación del código «coordinador=1; router=0» es una elección del proyecto. **CE=1 no significa que DigiMesh necesite un coordinador central al estilo de una red Zigbee.** Su significado concreto es habilitar la mensajería indirecta: los unicasts punto a multipunto se retienen hasta que un dispositivo que sondea los solicita. Tampoco equivale automáticamente a ser coordinador de sueño, cuya elección depende de otros parámetros. [M, pp. 54–56, 68 y 84]
 
@@ -272,7 +272,7 @@ La recomendación del código «coordinador=1; router=0» es una elección del p
 
 ![Sintaxis de los comandos AT de texto](imagenes/04_sintaxis_at.png)
 
-*Figura 6. Estructura AT, comando, parámetro y retorno de carro. Digi 90002173 Y, p. 51. Se usa la figura como descripción de sintaxis; los ejemplos numéricos de esta documentación se calculan independientemente.*
+*Figura 6. Estructura AT, comando, parámetro y retorno de carro. `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 51. Se usa la figura como descripción de sintaxis; los ejemplos numéricos de esta documentación se calculan independientemente.*
 
 | Caso | Texto UART en modo comando | Campo AT y parámetro dentro de API |
 |---|---|---|
@@ -351,7 +351,7 @@ La sección general del manual, p. 52, agrupa instrucciones de aplicación y gua
 
 ![Comandos AC y WR del fabricante](imagenes/21_wr_ac.png)
 
-*Figura 7. Definiciones de AC y WR; la misma página también describe FR y RE, que el programa no ejecuta. Digi 90002173 Y, p. 77.*
+*Figura 7. Definiciones de AC y WR; la misma página también describe FR y RE, que el programa no ejecuta. `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 77.*
 
 Un extracto breve del manual resume la finalidad de WR: «Writes parameter values to non-volatile memory». En español, escribe los valores en memoria no volátil. Esto no convierte una lectura posterior sin reinicio en una prueba independiente de persistencia.
 
@@ -621,7 +621,7 @@ Abre el puerto, entra con aislamiento y guarda inicial de 1,1 s, consulta GT e I
 
 ![CT y GT en el manual de 900HP](imagenes/20_gt_ct.png)
 
-*Figura 8. CT usa unidades de 100 ms; GT usa milisegundos. Digi 90002173 Y, p. 112.*
+*Figura 8. CT usa unidades de 100 ms; GT usa milisegundos. `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 112.*
 
 Este procedimiento evita escribir flash en cada inicio cuando GT ya es 500. Sin embargo, tiene tres límites concretos:
 
@@ -779,7 +779,7 @@ Una trama API lógica contiene:
 
 ![Comparación de estructura API 1 y API 2](imagenes/05_formatos_api.png)
 
-*Figura 9. Tablas de API sin escapes y con escapes. Digi 90002173 Y, p. 116.*
+*Figura 9. Tablas de API sin escapes y con escapes. `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 116.*
 
 `datosTrama` no es la trama completa. Cuando `leerTramaApi` devuelve bytes, ya retiró delimitador, longitud y checksum. Por eso los índices de Python del contenido comienzan tres posiciones antes que los offsets de la trama completa mostrados por el fabricante.
 
@@ -823,7 +823,7 @@ La longitud se convierte mediante `len(datosTrama).to_bytes(2,"big")`. Al leer, 
 
 ![Bytes reservados y ejemplo de escape](imagenes/06_escapes_api.png)
 
-*Figura 10. Regla de escape y ejemplo original de Digi 90002173 Y, p. 117.*
+*Figura 10. Regla de escape y ejemplo original de `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 117.*
 
 | Byte original | Representación UART en API 2 | Cálculo |
 |---|---|---|
@@ -884,17 +884,17 @@ El primer byte del contenido basta para clasificar el tipo, pero no para decidir
 
 ![Intercambio local de comando y respuesta](imagenes/07_intercambio_at_local.png)
 
-*Figura 11. Un AT local produce una respuesta local. Digi 90002173 Y, p. 119.*
+*Figura 11. Un AT local produce una respuesta local. `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 119.*
 
 El radio conectado al puerto ejecuta la orden. `0x08` no contiene dirección de destino porque el destinatario es ese mismo radio. Según el manual, las escrituras de parámetros mediante este tipo se aplican inmediatamente; no se necesita abandonar y reabrir modo comando para cada cambio temporal de ID. [M, pp. 124–125]
 
 ![Campos de 0x08](imagenes/10_trama_08.png)
 
-*Figura 12. Tabla original de solicitud AT local, Digi 90002173 Y, p. 125.*
+*Figura 12. Tabla original de solicitud AT local, `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 125.*
 
 ![Campos de 0x88](imagenes/11_trama_88.png)
 
-*Figura 13. Tabla original de respuesta AT local, Digi 90002173 Y, p. 141.*
+*Figura 13. Tabla original de respuesta AT local, `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 141.*
 
 | Campo | Índice en datos de `0x08` | Índice en datos de `0x88` |
 |---|---|---|
@@ -919,21 +919,21 @@ La respuesta dice: tipo `88`, correlación `01`, comando AP (`41 50`), estado ce
 
 ![Intercambio serial de un comando remoto](imagenes/09_intercambio_at_remoto.png)
 
-*Figura 14. Envoltura serial de solicitud y respuesta remota. Digi 90002173 Y, p. 119. La MAC del destinatario está dentro de la solicitud; el radio local gestiona su envío RF.*
+*Figura 14. Envoltura serial de solicitud y respuesta remota. `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 119. La MAC del destinatario está dentro de la solicitud; el radio local gestiona su envío RF.*
 
 La solicitud `0x17` incorpora la MAC del equipo que debe ejecutar el comando, un campo reservado de dos bytes, opciones y las dos letras del AT. El código utiliza el reservado `FF FE` y opciones `00`. Con opciones cero no deshabilita ACK ni pide aplicación inmediata del parámetro; deja preparado el cambio para aplicar después con AC. [M, pp. 136–137]
 
 ![Solicitud remota y primera parte de sus campos](imagenes/12_trama_17_a.png)
 
-*Figura 15. Solicitud AT remota y campos iniciales. Digi 90002173 Y, p. 136.*
+*Figura 15. Solicitud AT remota y campos iniciales. `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 136.*
 
 ![Continuación de campos y ejemplos de solicitud remota](imagenes/13_trama_17_b.png)
 
-*Figura 16. Continuación de 0x17 y ejemplo de cambio de red preparado. Digi 90002173 Y, p. 137.*
+*Figura 16. Continuación de 0x17 y ejemplo de cambio de red preparado. `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 137.*
 
 ![Campos de respuesta remota](imagenes/14_trama_97.png)
 
-*Figura 17. Respuesta AT remota, Digi 90002173 Y, p. 163.*
+*Figura 17. Respuesta AT remota, `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 163.*
 
 | Campo | Índice en datos de `0x17` | Índice en datos de `0x97` |
 |---|---|---|
@@ -964,17 +964,17 @@ La validación de dirección del programa exige ocho bytes y rechaza cero y la d
 
 ![Intercambio de datos RF y estado de transmisión](imagenes/08_intercambio_datos.png)
 
-*Figura 18. Transmisión RF y tramas seriales asociadas, Digi 90002173 Y, p. 119.*
+*Figura 18. Transmisión RF y tramas seriales asociadas, `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 119.*
 
 `0x90` representa datos recibidos, normalmente con AO=0. No es una respuesta AT y no tiene Frame ID de correlación con una consulta ND. Contiene MAC de origen, dos bytes reservados, opciones de recepción y carga útil. [M, pp. 153–154]
 
 ![Primera parte de los campos de 0x90](imagenes/15_trama_90_a.png)
 
-*Figura 19. Cabecera y opciones de recepción de 0x90. Digi 90002173 Y, p. 153.*
+*Figura 19. Cabecera y opciones de recepción de 0x90. `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 153.*
 
 ![Carga útil y checksum de 0x90](imagenes/16_trama_90_b.png)
 
-*Figura 20. Continuación de 0x90: carga útil y checksum. Digi 90002173 Y, p. 154.*
+*Figura 20. Continuación de 0x90: carga útil y checksum. `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 154.*
 
 Dentro de los datos que devuelve `leerTramaApi`, la carga útil de `0x90` empieza en el índice 12: tipo en 0, MAC en 1–8, reservado en 9–10 y opciones en 11. En la trama completa corresponde al offset 15.
 
@@ -1082,7 +1082,7 @@ Si el AP original es cero, informa que se necesita API 1 o API 2 y remite a la o
 
 ![Opciones de descubrimiento y tiempo NT](imagenes/18_opciones_no_nt.png)
 
-*Figura 21. Tiempo NT y opciones NO. Digi 90002173 Y, p. 88.*
+*Figura 21. Tiempo NT y opciones NO. `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 88.*
 
 NT determina una ventana de respuesta y los remotos usan un retardo aleatorio para evitar responder todos simultáneamente. `N?` informa el tiempo de descubrimiento que depende de la configuración; el propio manual recomienda consultarlo. [M, pp. 88 y 90]
 
@@ -1130,7 +1130,7 @@ La página 90 del manual enumera SH, SL, DB y NI al principio de ND. El código 
 
 ![Listado de campos ND del manual](imagenes/17_nd_manual.png)
 
-*Figura 22. Campos que enumera ND en Digi 90002173 Y, p. 90.*
+*Figura 22. Campos que enumera ND en `XBee-PRO_900HP_XSC_RF_Modules.pdf`, p. 90.*
 
 | Campo | Formato denominado `digimesh` en el código | Formato denominado `900hp_antiguo` en el código |
 |---|---|---|
@@ -1823,7 +1823,7 @@ La tabla está en orden de aparición del fuente. Las líneas corresponden al ar
 
 SHA-256 de los bytes del archivo: `05749950fdac917dbb2fdc2529c4ab840514ec41b91b3318647f63d93741b077`.
 
-**[M] Manual aportado:** Digi International, *XBee-PRO 900HP/XSC RF Modules*, 90002173 Y, septiembre de 2021, 275 páginas. [Copia incluida](fuentes/Manual_Digi_90002173_Y.pdf). [Dirección oficial indicada en el código](https://docs.digi.com/resources/documentation/digidocs/pdfs/90002173.pdf).
+**[M] Manual aportado:** `XBee-PRO_900HP_XSC_RF_Modules.pdf`, de Digi International, documento 90002173, revisión Y, septiembre de 2021, 275 páginas. [Copia incluida](fuentes/XBee-PRO_900HP_XSC_RF_Modules.pdf). [Dirección oficial indicada en el código](https://docs.digi.com/resources/documentation/digidocs/pdfs/90002173.pdf).
 
 SHA-256 del PDF: `917451477f8ad775ca665538e49849c374cfd5399f7bb797445354b015e917fe`.
 
