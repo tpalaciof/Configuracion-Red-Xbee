@@ -45,12 +45,14 @@ Requisito:
     python3 -m pip install pyserial
 """
 
-import argparse
+import errno
 import json
 import signal
+import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -69,6 +71,12 @@ except ModuleNotFoundError as error:
 # ************************* CONFIGURACIÓN ************************* #
 
 BAUDIOS = 9600
+PUERTO_XBEE = Path("/dev/xbee")
+PUERTOS_RESERVADOS = (
+    Path("/dev/maxbotix"),
+    Path("/dev/rain"),
+    Path("/dev/modem"),
+)
 TIEMPO_ESPERA_SERIAL_S = 0.100
 
 TIEMPO_RESPUESTA_AT_S = 1.0
@@ -77,6 +85,7 @@ TIEMPO_RESPUESTA_API_S = 2.0
 TIEMPO_RESPUESTA_REMOTA_S = 10.0  # Espera por comando remoto; incluye el recorrido por radio.
 ID_MAXIMO_900HP = 0x7FFF
 INTENTOS_DESCUBRIMIENTO = 2  # Repite una vez si no llegó ningún nodo remoto.
+NO_RSSI_ULTIMO_SALTO = 0x04
 MAX_LONGITUD_API = 2048  # Límite para las tramas usadas por este configurador.
 TIEMPO_ENTRE_BYTES_API_S = 0.500  # Recupera una trama cortada sin consumir toda la espera ND.
 
@@ -245,26 +254,28 @@ Ejemplo:
     [puerto2, puerto1]
 """
 
-def seleccionarPuerto(puertoPreferido=None, baudios=BAUDIOS):   # puertoPreferido=None, siginifica que, por defecto, no se le ha indicado qué puerto usar. Si quien llama a la función no me entrega un puerto, asumiré que no hay uno preseleccionado.
+def esPuertoReservado(rutaPuerto):
+    rutaReal = Path(rutaPuerto).resolve()
+    return any(rutaReal == alias.resolve() for alias in PUERTOS_RESERVADOS)
 
-    if puertoPreferido:                                         # ¿Me dieron ya un puerto específico?
 
-        """ seleccionarPuerto("/dev/ttyUSB0") 
-            puertoPreferido = "/dev/ttyUSB0"
-        """
-
-        ni = identificarNiEnPuerto(puertoPreferido, baudios)    # Si sí, 'identificarNiEnPuerto' intenta comunicarse con el XBee conectado a ese puerto y averiguar su parámetro NI.
-        return puertoPreferido, ni                              # ("/dev/ttyUSB0", "COORDINADOR") 
-
-    puertos = listarPuertosSeriales()
-    puertosIdentificados = []
+def seleccionarPuerto():
+    rutaXBee = PUERTO_XBEE.resolve()
+    tieneAliasXBee = PUERTO_XBEE.exists()
+    puertos = [
+        puerto for puerto in listarPuertosSeriales()
+        if not esPuertoReservado(puerto.device)
+        and (not tieneAliasXBee or Path(puerto.device).resolve() != rutaXBee)
+    ]
 
     print()
     print("Puertos seriales disponibles:")
 
-    if puertos:                                                 # si la lista de puertos no está vacía
-        for indice, puerto in enumerate(puertos, start=1):      # start = 1 porque por defecto es 0
+    if tieneAliasXBee:
+        print(f"  Enter para usar {PUERTO_XBEE} (receptor de CornareSAT)")
 
+    if puertos:
+        for indice, puerto in enumerate(puertos, start=1):      # start = 1 porque por defecto es 0
             """
             Supongamos que:
 
@@ -290,57 +301,46 @@ def seleccionarPuerto(puertoPreferido=None, baudios=BAUDIOS):   # puertoPreferid
                 puerto = objetoPuertoUSB1
             """
             descripcion = puerto.description or "Sin descripción"  # Usa puerto.description si tiene contenido. Si está vacío, usa "Sin descripción". Ejemplo: puerto.description = "CP2102 USB to UART Bridge Controller"
-            ni = identificarNiEnPuerto(puerto.device, baudios)     # Intenta descubrir el NI del XBee conectado a ese puerto.
-            puertosIdentificados.append((puerto, ni))              # Hace una dupla de los objetos puerto y ni, y la agrega a la lista puertosIdentificados.
-
-            """
-            Ejemplo: 
-
-            puertosIdentificados = [
-                (objetoPuertoUSB0, "COORDINADOR"),
-                (objetoPuertoUSB1, "ROUTER")
-            ]
-            """
-
-            lineaPuerto = f"  {indice}. {puerto.device} - {descripcion}"    # 1. /dev/ttyUSB0 - CP2102 USB to UART
-
-            if ni:
-                lineaPuerto += f" | NI: {ni}"                               # 1. /dev/ttyUSB0 - CP2102 USB to UART | NI: COORDINADOR
-            else:
-                lineaPuerto += " | NI no disponible"                        # 1. /dev/ttyUSB0 - CP2102 USB to UART | NI no disponible
-
-            print(lineaPuerto)
-
-        print(f"  {len(puertos) + 1}. Escribir otra ruta")
-
-        while True:
-            respuesta = input("Seleccione el puerto: ").strip()
-
-            try:
-                opcion = int(respuesta)
-            except ValueError:
-                print("Debe escribir el número de una opción.")
-                continue
-
-            if 1 <= opcion <= len(puertos):                                 # Usuario escoge desde la opción 1 hasta la opción n, donde n = len(puertos)
-                puerto, ni = puertosIdentificados[opcion - 1]               # Se resta 1 porque la lista puertosIdentificados empieza en índice 0, mientras que las opciones mostradas al usuario empiezan en 1.
-                return puerto.device, ni                                    # /dev/ttyUSB0, "COORDINADOR"  o  /dev/ttyUSB1, "ROUTER"
-
-            if opcion == len(puertos) + 1:                                  # Se escogió la opción de escribir otra ruta
-                break
-
-            print("Opción no válida.")
-
-    else:                                                                   # si la lista de puertos SÍ está vacía
+            print(f"  {indice}. {puerto.device} - {descripcion}")
+    elif not tieneAliasXBee:
         print("  No se detectaron puertos automáticamente.")
 
-    ruta = input("Ruta del puerto [/dev/ttyUSB0]: ").strip()                # Si se eligió Escribir otra ruta o no se detectó ningún puerto automáticamente, se le pide al usuario que escriba la ruta del puerto. 
-    ruta = ruta or "/dev/ttyUSB0"                                           # Si el usuario no escribe nada, se usa "/dev/ttyUSB0" como valor predeterminado.       
-    ni = identificarNiEnPuerto(ruta, baudios)
-    return ruta, ni
+    print(f"  {len(puertos) + 1}. Escribir otra ruta")
+    print("  0. Volver")
+
+    while True:
+        respuesta = input("Seleccione el puerto: ").strip()
+        if not respuesta and tieneAliasXBee:
+            return str(PUERTO_XBEE)
+
+        try:
+            opcion = int(respuesta)
+        except ValueError:
+            print("Debe escribir el número de una opción.")
+            continue
+
+        if opcion == 0:
+            return None
+
+        if 1 <= opcion <= len(puertos):                                 # Usuario escoge desde la opción 1 hasta la opción n, donde n = len(puertos)
+            return puertos[opcion - 1].device
+
+        if opcion == len(puertos) + 1:                                  # Se escogió la opción de escribir otra ruta
+            ruta = input("Ruta del puerto [Enter para volver]: ").strip()
+            if ruta:
+                if tieneAliasXBee and Path(ruta).resolve() == rutaXBee:
+                    return str(PUERTO_XBEE)
+                return ruta
+            continue
+
+        print("Opción no válida.")
 
 
 def abrirPuerto(rutaPuerto, baudios):
+    # Aplica también a las rutas escritas a mano y a los nombres ttyUSB de cada alias.
+    if esPuertoReservado(rutaPuerto):
+        raise ErrorXBee(f"{rutaPuerto} está reservado para un sensor local o el módem.")
+
     try:                                    # Try: "Intenta hacer lo siguiente, pero prepárate por si ocurre un error"
         return serial.Serial(               # Instrucción que abre el puerto serial
                       
@@ -353,9 +353,16 @@ def abrirPuerto(rutaPuerto, baudios):
 
             timeout=TIEMPO_ESPERA_SERIAL_S, # cuánto tiempo esperará una operación de lectura antes de rendirse
             write_timeout=2.0,              # cuánto tiempo esperará una operación de escritura antes de rendirse
+            exclusive=True if sys.platform.startswith("linux") else None,
         )
 
     except serial.SerialException as error:
+        if error.errno in (errno.EAGAIN, errno.EBUSY):
+            mensaje = f"El puerto {rutaPuerto} está ocupado."
+            if Path(rutaPuerto).resolve() == PUERTO_XBEE.resolve():
+                mensaje += " Si lo está usando CornareSAT, detenga main.service antes de configurarlo."
+            raise ErrorXBee(mensaje) from error
+
         raise ErrorXBee(
             f"no fue posible abrir {rutaPuerto}: {error}"
         ) from error
@@ -657,6 +664,7 @@ def configurarGtAlIniciar(rutaPuerto, baudios):
 
         try:
             gtActual = enviarComandoTexto(puerto, "GT")
+            idRedActual = enviarComandoTexto(puerto, "ID")
 
             if gtActual != GT_CONFIGURADOR_MS:
                 enviarComandoTexto(puerto, "GT", GT_CONFIGURADOR_MS)
@@ -676,6 +684,8 @@ def configurarGtAlIniciar(rutaPuerto, baudios):
                 salirModoComando(puerto, apOriginal)
             else:
                 salirModoComando(puerto, apOriginal)
+
+        return idRedActual
 
 
 # *********************** CONSULTAS AT LOCALES ******************** #
@@ -734,9 +744,9 @@ def leerRegistrosConfiguracion(puerto):
     return configuracion
 
 
-def leerConfiguracionLocal(puerto):
+def leerConfiguracionLocal(puerto, tiempoGuarda=TIEMPO_GUARDA_S):
     """Entra con +++, lee todos los registros y sale con ATCN, incluso si falla."""
-    apOriginal = entrarModoComandoAislado(puerto)
+    apOriginal = entrarModoComandoAislado(puerto, tiempoGuarda)
 
     try:
         configuracion = leerRegistrosConfiguracion(puerto)
@@ -766,8 +776,9 @@ def mostrarConfiguracion(configuracion):
     # AP describe la operación normal; Lectura describe cómo se consultó.
     # Así AP=1/2 y modo comando AT pueden aparecer juntos sin contradicción.
     # Las consultas locales usan modo comando; las remotas usan 0x17/0x97.
-    lectura = configuracion.get("LECTURA", descripcionModo(MODO_COMANDO))
-    print(f"Lectura   : {lectura}")
+
+    #lectura = configuracion.get("LECTURA", descripcionModo(MODO_COMANDO))
+    #print(f"Lectura   : {lectura}")
 
     if configuracion.get("BD") is not None:
         bd = configuracion["BD"]
@@ -826,7 +837,6 @@ def pedirAp(valorActual):
     """ Pide el modo de operación serial que tendrá el XBee después de salir de modo comando.
         Solo cambia el formato usado durante la operación normal del módulo.
     """
-    print()
     print("AP - Modo de operación serial")
     print("  0. Transparent Mode")
     print("  1. API Mode Without Escapes")
@@ -847,7 +857,6 @@ def pedirAp(valorActual):
 
 def pedirCe(valorActual):
     """Conserva las opciones de rol utilizadas en el montaje: CE=0 o CE=1."""
-    print()
     print("CE - Routing/Messaging Mode")
     print("  0. Standard Router")
     print("  1. Indirect Msg Coordinator")
@@ -903,20 +912,27 @@ def pedirNi(valorActual):
         return respuesta    # Si se llega a este punto, significa que el nombre ingresado es válido y se retorna.
 
 
-def pedirNuevaConfiguracion(configuracionActual):
+def pedirNuevaConfiguracion(configuracionActual, rutaPuerto, baudios, configuracionLocal):
     """Reúne y muestra los cuatro valores; todavía no escribe nada en el XBee."""
-    print()
-    print("Introduzca la nueva configuración.")
-    print("Presione Enter para conservar el valor mostrado entre corchetes.")
-    print()
+    nueva = {}
+    for comando, pedirValor in (
+        ("ID", pedirId),
+        ("AP", pedirAp),
+        ("CE", pedirCe),
+        ("NI", pedirNi),
+    ):
+        limpiarTerminal()
+        lineaMenu(rutaPuerto, baudios, configuracionLocal["NI"], configuracionLocal["ID"])
+        mostrarConfiguracion(configuracionActual)
+        print()
+        print("Introduzca la nueva configuración.")
+        print("Presione Enter para conservar el valor mostrado entre corchetes. Presione CTRL + C para cancelar.")
+        print()
+        nueva[comando] = pedirValor(configuracionActual[comando])
 
-    nueva = {
-        "ID": pedirId(configuracionActual["ID"]),
-        "AP": pedirAp(configuracionActual["AP"]),
-        "CE": pedirCe(configuracionActual["CE"]),
-        "NI": pedirNi(configuracionActual["NI"]),
-    }
-
+    limpiarTerminal()
+    lineaMenu(rutaPuerto, baudios, configuracionLocal["NI"], configuracionLocal["ID"])
+    mostrarConfiguracion(configuracionActual)
     print()
     print("Configuración que se escribirá")
     print(f"  ID: 0x{nueva['ID']:04X}")
@@ -1145,11 +1161,11 @@ def guardarModuloEnRegistro(configuracion, rutaPuerto, macLocal=None):
     escribirRegistro(registro)  # Guarda ese diccionario en: xbee_configurados.json
 
 
-def mostrarRegistro():
+def mostrarRegistro(enum = None):
     """Muestra lo guardado en el JSON"""
     registro = cargarRegistro()
     modulos = registro["modulos"]
-
+    
     print()
     print(f"Registro: {RUTA_REGISTRO}")
 
@@ -1159,17 +1175,31 @@ def mostrarRegistro():
 
     print()
 
-    for indice, modulo in enumerate(modulos, start=1):
-        print(
-            f"{indice}. {modulo.get('ni', '(sin NI)')} | "
-            f"MAC {modulo.get('mac', '?')} | "
-            f"ID {modulo.get('id', '?')} | "
-            f"AP {modulo.get('ap', '?')} | "
-            f"CE {modulo.get('ce', '?')}"
-        )
-        if modulo.get("ids_por_verificar"):
-            print("   Configuración pendiente de verificar; ID posibles: "
-                  + ", ".join(modulo["ids_por_verificar"]))
+    if enum != None:
+        for indice, modulo in enumerate(modulos, start=1):
+                print(
+                    f"- {modulo.get('ni', '(sin NI)')} | "
+                    f"MAC {modulo.get('mac', '?')} | "
+                    f"ID {modulo.get('id', '?')} | "
+                    f"AP {modulo.get('ap', '?')} | "
+                    f"CE {modulo.get('ce', '?')}"
+                )
+                if modulo.get("ids_por_verificar"):
+                    print("   Configuración pendiente de verificar; ID posibles: "
+                          + ", ".join(modulo["ids_por_verificar"])) 
+
+    else: 
+        for indice, modulo in enumerate(modulos, start=1):
+            print(
+                f"{indice}. {modulo.get('ni', '(sin NI)')} | "
+                f"MAC {modulo.get('mac', '?')} | "
+                f"ID {modulo.get('id', '?')} | "
+                f"AP {modulo.get('ap', '?')} | "
+                f"CE {modulo.get('ce', '?')}"
+            )
+            if modulo.get("ids_por_verificar"):
+                print("   Configuración pendiente de verificar; ID posibles: "
+                    + ", ".join(modulo["ids_por_verificar"]))
 
     """
     Ejemplo de salida:
@@ -1665,6 +1695,18 @@ def protegerRestauracion():
         signal.signal(signal.SIGINT, manejadorAnterior)
 
 
+def esperarFinNdCancelado(puerto, modo):
+    hasta = getattr(puerto, "_descubrimientoHasta", None)
+    if hasta is not None and time.monotonic() < hasta:
+        print("Esperando que finalice el ND cancelado antes de recuperar la configuración local...")
+        while (restante := hasta - time.monotonic()) > 0:
+            try:
+                leerTramaApi(puerto, modo, min(0.5, restante))
+            except (TimeoutError, ErrorXBee):
+                pass
+    puerto._descubrimientoHasta = None
+
+
 @contextmanager
 def conservarRedLocal(puerto, modo, configuracionLocal):
     """Verifica ID/AP al salir; usa texto AT si la interfaz API deja de responder."""
@@ -1705,15 +1747,8 @@ def conservarRedLocal(puerto, modo, configuracionLocal):
                     break
                 except (ErrorXBee, serial.SerialException, OSError) as error:
                     ultimoError = error
-                    hasta = getattr(puerto, "_descubrimientoHasta", None)
-                    if intento == 0 and hasta is not None and time.monotonic() < hasta:
-                        print("Esperando que finalice el ND cancelado antes de recuperar la red...")
-                        while time.monotonic() < hasta:
-                            try:
-                                leerTramaApi(puerto, modo, min(0.5, hasta - time.monotonic()))
-                            except (TimeoutError, ErrorXBee):
-                                pass
-                        puerto._descubrimientoHasta = None
+                    if intento == 0:
+                        esperarFinNdCancelado(puerto, modo)
             else:
                 detalle = f"Error inicial: {errorOperacion}. " if errorOperacion is not None else ""
                 raise ErrorXBee(
@@ -1840,14 +1875,14 @@ def buscarEnRango(puerto, modo, configuracion, opcionesNo, tiempoNt, tiempoEsper
 
 # ********************* DESCUBRIMIENTO DE RED ******************** #
 
-def prepararDescubrimientoApi(puerto):
+def prepararDescubrimientoApi(puerto, tiempoGuarda=TIEMPO_GUARDA_S):
     """Lee por AT los datos necesarios y confirma ATCN antes de permitir API.
 
     Devuelve (configuracion, modoApi, opcionesNo, tiempoNt).
     NO indica los campos adicionales de ND y NT su duración en décimas
     de segundo. Consultarlos no cambia sus valores ni el AP del XBee.
     """
-    apOriginal = entrarModoComandoAislado(puerto)
+    apOriginal = entrarModoComandoAislado(puerto, tiempoGuarda)
 
     try:
         configuracion = leerRegistrosConfiguracion(puerto)
@@ -1928,10 +1963,10 @@ def analizarRespuestaNd(datos, opcionesNo):
             raise ErrorXBee("la respuesta ND no contiene el tipo Digi indicado por NO")
         digiDeviceType = int.from_bytes(datos[posicion:posicion + 4], "big")
         posicion += 4
-    if opcionesNo & 0x04:
-        if len(datos) <= posicion:
-            raise ErrorXBee("la respuesta ND no contiene el RSSI adicional indicado por NO")
-        rssiUltimoSalto = -datos[posicion] if datos[posicion] <= 127 else None
+    if opcionesNo & NO_RSSI_ULTIMO_SALTO and posicion < len(datos):
+        magnitudRssi = datos[posicion]
+        if 0 < magnitudRssi <= 127:
+            rssiUltimoSalto = -magnitudRssi
         posicion += 1
     if posicion != len(datos):
         raise ErrorXBee("la longitud ND no coincide con sus campos y las opciones NO")
@@ -1959,8 +1994,54 @@ def analizarRespuestaNd(datos, opcionesNo):
     }
 
 
+def describirRssiNd(nodo):
+    ultimoSalto = nodo.get("rssi_ultimo_salto_dbm")
+    if ultimoSalto is not None:
+        return f"RSSI del último salto: {ultimoSalto} dBm"
+    rssi = nodo.get("rssi_dbm")
+    return f"RSSI informado por ND: {rssi} dBm" if rssi is not None else "RSSI sin medición"
+
+
 def descubrirNodosApi(puerto, modo, opcionesNo, tiempoNt, alEncontrar=None,
                       tiempoEspera=None, macLocal=None):
+    """Solicita RSSI por respuesta ND y recupera el NO original al terminar."""
+    opcionesNd = opcionesNo | NO_RSSI_ULTIMO_SALTO
+    restaurarNo = opcionesNd != opcionesNo
+    try:
+        if restaurarNo:
+            try:
+                enviarComandoApi(puerto, modo, "NO", opcionesNd)
+            except ErrorComandoApi as error:
+                if error.estado in (1, 2, 3):
+                    opcionesNd = opcionesNo
+                    restaurarNo = False
+                    print(f"Aviso: el XBee local rechazó la opción de RSSI en ND. {error}")
+                elif error.estado is not None or enviarComandoApi(puerto, modo, "NO") != opcionesNd:
+                    raise
+        return ejecutarDescubrimientoNd(
+            puerto, modo, opcionesNd, tiempoNt,
+            alEncontrar=alEncontrar, tiempoEspera=tiempoEspera, macLocal=macLocal,
+        )
+    finally:
+        if restaurarNo:
+            with protegerRestauracion():
+                try:
+                    esperarFinNdCancelado(puerto, modo)
+                    try:
+                        enviarComandoApi(puerto, modo, "NO", opcionesNo)
+                    except ErrorComandoApi as error:
+                        if error.estado is not None:
+                            raise
+                    if enviarComandoApi(puerto, modo, "NO") != opcionesNo:
+                        raise ErrorXBee("el valor leído difiere del original")
+                except (ErrorXBee, OSError) as error:
+                    raise ErrorXBee(
+                        f"no se pudo confirmar la restauración de NO=0x{opcionesNo:02X}: {error}"
+                    ) from error
+
+
+def ejecutarDescubrimientoNd(puerto, modo, opcionesNo, tiempoNt, alEncontrar=None,
+                             tiempoEspera=None, macLocal=None):
     """Envía únicamente ND por API y reúne las respuestas de los distintos nodos.
 
     Debe llamarse después de prepararDescubrimientoApi. NO y NT ya se leyeron
@@ -1992,12 +2073,12 @@ def descubrirNodosApi(puerto, modo, opcionesNo, tiempoNt, alEncontrar=None,
         # Con identificador=1, crearTramaApi produce: 7E 00 04 08 01 4E 44 64.
         datosTrama = bytes([0x08, identificador]) + b"ND"
 
+        tiempoFinal = time.monotonic() + tiempoEspera
+        puerto._descubrimientoHasta = tiempoFinal
         # Se conservan las tramas pendientes; se filtran por tipo, comando e ID.
         puerto.write(crearTramaApi(datosTrama, modo))
         puerto.flush()
 
-        tiempoFinal = time.monotonic() + tiempoEspera
-        puerto._descubrimientoHasta = tiempoFinal
         errorInterpretacion = None
 
         while time.monotonic() < tiempoFinal:
@@ -2042,11 +2123,11 @@ def descubrirNodosApi(puerto, modo, opcionesNo, tiempoNt, alEncontrar=None,
             nodosPorMac[nodo["mac"]] = nodo
             if alEncontrar is not None:
                 alEncontrar(nodo)  # Guarda cada hallazgo antes de seguir esperando.
-            señal = f"{nodo['rssi_dbm']} dBm" if nodo['rssi_dbm'] is not None else "RSSI no incluido"
-            print(
-                f"  Encontrado: {nodo['ni'] or '(sin NI)'} | "
-                f"{nodo['mac']} | {señal}"
-            )
+            if nodo["mac"] != macLocal:
+                print(
+                    f"  Encontrado: {nodo['ni'] or '(sin NI)'} | "
+                    f"{nodo['mac']} | {describirRssiNd(nodo)}"
+                )
 
         # Un silencio del puerto no prueba que la red esté vacía. Si el enlace
         # local falló, se informa como error y se ejecuta la recuperación exterior.
@@ -2079,14 +2160,7 @@ def mostrarNodosDescubiertos(nodos):
         if "id" in nodo:
             print(f"   ID: {nodo['id']}")
         print(f"   Tipo: {nodo['tipo_nodo_texto']}")
-        rssi = nodo.get("rssi_dbm")
-        print("   RSSI informado por ND: " + (f"{rssi} dBm" if rssi is not None else "no incluido"))
-
-        if nodo["rssi_ultimo_salto_dbm"] is not None:
-            print(
-                "   RSSI del último salto: "
-                f"{nodo['rssi_ultimo_salto_dbm']} dBm"
-            )
+        print(f"   {describirRssiNd(nodo)}")
 
     print("-" * 74)
 
@@ -2157,7 +2231,10 @@ def seleccionarModuloRemoto(nodos):
     """Muestra únicamente los nodos encontrados o comprobados en esta operación."""
     print("\nMódulos disponibles para configurar:")
     for indice, nodo in enumerate(nodos, start=1):
-        print(f"  {indice}. {nodo['ni'] or '(sin NI)'} | MAC {nodo['mac']} | ID {nodo['id']}")
+        descripcion = f"{nodo['ni'] or '(sin NI)'} | MAC {nodo['mac']} | ID {nodo['id']}"
+        if "rssi_dbm" in nodo:
+            descripcion += f" | {describirRssiNd(nodo)}"
+        print(f"  {indice}. {descripcion}")
     print("  0. Volver sin configurar")
     print("\nSi se requiere otro: por favor seleccione la opción 3 del menú: "
                           "Descubrir módulos Xbee.\n")
@@ -2192,7 +2269,7 @@ def leerConfiguracionRemota(puerto, modo, mac):
             if error.estado not in (1, 2, 3):
                 raise
             configuracion[comando] = None
-    configuracion["LECTURA"] = "AT remoto por radio (API 0x17/0x97)"
+    # configuracion["LECTURA"] = "AT remoto por radio (API 0x17/0x97)"
     return configuracion
 
 
@@ -2325,7 +2402,7 @@ def configurarModuloRemoto(puerto, modo, actual, nueva, rutaPuerto, macLocal):
     return final
 
 def operacionLeer(rutaPuerto, baudios):
-    """Opción 1: abre el puerto, consulta todo por AT y actualiza el NI del menú."""
+    """Opción 1: abre el puerto, consulta por AT y actualiza NI e ID del menú."""
     with abrirPuerto(rutaPuerto, baudios) as puerto:    # La función devuelve un objeto de tipo Serial creado por serial.Serial(...) que representa el puerto abierto. Se utiliza con "with" para asegurarse de que se cierre automáticamente al salir del bloque.
         configuracion = leerConfiguracionLocal(puerto)  #  as puerto significa que guarda ese objeto serial en la variable local puerto.
 
@@ -2341,7 +2418,7 @@ def operacionLeer(rutaPuerto, baudios):
         )
         """
     mostrarConfiguracion(configuracion)
-    return configuracion["NI"] or None
+    return configuracion["NI"] or None, configuracion["ID"]
 
 
 def operacionConfigurar(rutaPuerto, baudios):
@@ -2351,13 +2428,14 @@ def operacionConfigurar(rutaPuerto, baudios):
         configuracionActual = leerConfiguracionLocal(puerto)
 
     #Al entrar al with, abre la conexión; al salir, Python llama automáticamente a su método de salida y PySerial ejecuta puerto.close()
-    mostrarConfiguracion(configuracionActual)
     
-    nuevaConfiguracion = pedirNuevaConfiguracion(configuracionActual)
+    nuevaConfiguracion = pedirNuevaConfiguracion(
+        configuracionActual, rutaPuerto, baudios, configuracionActual,
+    )
 
     if not pedirConfirmacion("¿Desea escribir estos valores en el XBee?"):  # Si devuelve False, not False = True, entonces entra al if y ejecuta el bloque de código.
         print("Configuración cancelada. No se modificó el XBee.")
-        return configuracionActual["NI"] or None
+        return configuracionActual["NI"] or None, configuracionActual["ID"]
 
     print()
     print("Escribiendo configuración...")              # Si sí se desea establecer la configuración...
@@ -2375,6 +2453,8 @@ def operacionConfigurar(rutaPuerto, baudios):
         configuracionFinal,
         nuevaConfiguracion,
     )
+    limpiarTerminal()
+    lineaMenu(rutaPuerto, baudios, configuracionFinal["NI"], configuracionFinal["ID"])
     mostrarConfiguracion(configuracionFinal)
 
     if diferencias:
@@ -2394,7 +2474,7 @@ def operacionConfigurar(rutaPuerto, baudios):
 
     print("Configuración guardada y verificada correctamente.")
     print(f"Registro actualizado: {RUTA_REGISTRO.name}")
-    return configuracionFinal["NI"] or None
+    return configuracionFinal["NI"] or None, configuracionFinal["ID"]
 
 
 def operacionDescubrir(rutaPuerto, baudios):
@@ -2461,9 +2541,9 @@ def operacionConfigurarRemoto(rutaPuerto, baudios):
                 return configuracion["NI"] or None
             cambiarIdTemporal(puerto, modo, int(nodo["id"], 16))
             actual = leerConfiguracionRemota(puerto, modo, nodo["mac"])
-            print(f"\nMódulo remoto seleccionado: {actual['MAC']}")
-            mostrarConfiguracion(actual)
-            nueva = pedirNuevaConfiguracion(actual)
+            nueva = pedirNuevaConfiguracion(
+                actual, rutaPuerto, baudios, configuracion,
+            )
             if nueva["ID"] != actual["ID"]:
                 print("El nuevo ID separará este módulo de su red actual. Para verificarlo "
                       "debe ser alcanzable desde el coordinador en la nueva red.")
@@ -2475,92 +2555,371 @@ def operacionConfigurarRemoto(rutaPuerto, baudios):
     return configuracion["NI"] or None
 
 
-def mostrarMenu(rutaPuerto, baudios, niPuertoActual=None):
-    """Dibuja el menú y el NI conocido del puerto, sin consultar nuevamente el radio."""
-    print()
-    print("=" * 58)
+def leerRadiosUsbEnvio(rutaPuerto, baudios):
+    """Identifica los XBee conectados y conserva una entrada por MAC."""
+    rutaReceptor = str(PUERTO_XBEE) if PUERTO_XBEE.exists() else None
+    rutas = [rutaPuerto]
+    if rutaReceptor:
+        rutas.insert(0, rutaReceptor)
+    rutas.extend(
+        puerto.device for puerto in listarPuertosSeriales()
+        if getattr(puerto, "vid", None) is not None
+        or Path(puerto.device).name.startswith("ttyUSB")
+    )
+    radios = {}
+    rutasLeidas = set()
+    for ruta in rutas:
+        rutaReal = Path(ruta).resolve()
+        if rutaReal in rutasLeidas or esPuertoReservado(ruta):
+            continue
+        rutasLeidas.add(rutaReal)
+        try:
+            with abrirPuerto(ruta, baudios) as puerto:
+                configuracion = leerConfiguracionLocal(puerto, TIEMPO_GUARDA_INICIAL_S)
+        except (ErrorXBee, serial.SerialException, OSError) as error:
+            if ruta == rutaReceptor or ruta == rutaPuerto:
+                print(f"Aviso: no se pudo consultar {ruta}: {error}")
+            continue
+        radios[configuracion["MAC"]] = dict(configuracion, puerto=ruta)
+    return radios
+
+
+def describirRadioEnvio(radio):
+    ap = "AP sin confirmar" if radio["AP"] is None else f"AP={radio['AP']}"
+    descripcion = f"{radio['NI'] or '(sin NI)'} | {ap}"
+    if radio.get("puerto"):
+        descripcion += f" | {radio['puerto']}"
+    if "rssi_dbm" in radio:
+        descripcion += f" | {describirRssiNd(radio)}"
+    return descripcion
+
+
+def seleccionarRadioEnvio(radios, pregunta):
+    if len(radios) == 1:
+        return radios[0]
+    for indice, radio in enumerate(radios, start=1):
+        print(f"  {indice}. {describirRadioEnvio(radio)} | MAC {radio['MAC']}")
+    print("  0. Volver")
+    while True:
+        try:
+            opcion = int(input(f"{pregunta}: ").strip())
+        except ValueError:
+            opcion = -1
+        if opcion == 0:
+            return None
+        if 1 <= opcion <= len(radios):
+            return radios[opcion - 1]
+        print("Opción no válida.")
+
+
+def buscarRadiosEnvio(puerto, modo, receptor, opcionesNo, tiempoNt, radiosUsb):
+    tiempoEspera = obtenerTiempoDescubrimiento(puerto, modo, tiempoNt)
+    encontrados = descubrirNodosApi(
+        puerto, modo, opcionesNo, tiempoNt,
+        tiempoEspera=tiempoEspera, macLocal=receptor["MAC"],
+    )
+    radios = {receptor["MAC"]: receptor}
+    for encontrado in encontrados:
+        mac = encontrado["mac"]
+        if mac == receptor["MAC"]:
+            continue
+        conectado = radiosUsb.get(mac, {})
+        try:
+            ap = enviarComandoApi(puerto, modo, "AP", mac=mac)
+        except ErrorXBee:
+            ap = conectado.get("AP")
+        radios[mac] = dict(
+            conectado, MAC=mac, NI=encontrado["ni"], AP=ap,
+            rssi_dbm=encontrado["rssi_dbm"],
+            rssi_ultimo_salto_dbm=encontrado["rssi_ultimo_salto_dbm"],
+        )
+
+    # Un radio conectado por USB también se puede configurar si ND no lo vio.
+    for mac, conectado in radiosUsb.items():
+        mismaRed = conectado["ID"] == receptor["ID"] and all(
+            conectado[clave] == receptor[clave] for clave in ("HP", "CM")
+        )
+        if mismaRed and mac not in radios:
+            radios[mac] = dict(conectado, soloUsb=True)
+    return list(radios.values())
+
+
+def mostrarRadiosEnvio(radios, receptor):
+    print(f"\nMódulos de la red ID 0x{receptor['ID']:04X}")
+    for ap, titulo in (
+        (0, "AP=0 · Modo transparente"),
+        (1, "AP=1 · Modo API"),
+        (2, "AP=2 · Modo API con escapes"),
+        (None, "AP sin confirmar"),
+    ):
+        grupo = [radio for radio in radios if radio["AP"] == ap]
+        if grupo:
+            print(f"  {titulo}")
+        for radio in grupo:
+            detalle = " | solo USB, sin respuesta a ND" if radio.get("soloUsb") else ""
+            if radio["MAC"] == receptor["MAC"]:
+                detalle = " | receptor para este envío"
+            print(f"    {describirRadioEnvio(radio)} | MAC {radio['MAC']}{detalle}")
+
+
+def formatearDestinoEnvio(dh, dl):
+    if dh is None or dl is None:
+        return "sin confirmar"
+    destino = f"{dh:08X}{dl:08X}"
+    if (dh, dl) == (0, 0xFFFF):
+        destino += " (Broadcast)"
+    return destino
+
+
+def ejecutarAtDestino(enviarAt, comando, destino):
+    """Reintenta una vez tras una respuesta remota perdida, si el nodo responde."""
+    try:
+        enviarAt(comando)
+    except ErrorComandoApi as error:
+        if error.estado not in (None, 4):
+            raise
+        print(f"AT{comando} sin confirmación. Consultando DH y DL antes de reintentar...")
+        leido = (enviarAt("DH"), enviarAt("DL"))
+        if comando == "WR" and leido != destino:
+            raise ErrorXBee("DH:DL cambió antes de repetir ATWR") from error
+        enviarAt(comando)
+
+
+def guardarDestinoEnvio(enviarAt, destino):
+    """Aplica y verifica DH/DL antes de confirmar el guardado en memoria."""
+    anteriores = (enviarAt("DH"), enviarAt("DL"))
+    cambio = anteriores != destino
+    try:
+        if cambio:
+            enviarAt("DH", destino[0])
+            enviarAt("DL", destino[1])
+        ejecutarAtDestino(enviarAt, "AC", destino)
+        if (enviarAt("DH"), enviarAt("DL")) != destino:
+            raise ErrorXBee("el destino leído no coincide con el seleccionado")
+    except BaseException:
+        if cambio:
+            with protegerRestauracion():
+                try:
+                    enviarAt("DH", anteriores[0])
+                    enviarAt("DL", anteriores[1])
+                    ejecutarAtDestino(enviarAt, "AC", anteriores)
+                    if (enviarAt("DH"), enviarAt("DL")) != anteriores:
+                        raise ErrorXBee("la lectura no coincide con el destino anterior")
+                except (ErrorXBee, serial.SerialException, OSError) as error:
+                    print(f"No se pudo verificar la recuperación del destino anterior: {error}")
+                else:
+                    print("Destino anterior recuperado y verificado.")
+        raise
+
+    # Aunque DH:DL ya coincida, un intento previo pudo aplicar el valor sin guardarlo.
+    estado = f"Destino aplicado y leído en el nodo: {formatearDestinoEnvio(*destino)}"
+    try:
+        ejecutarAtDestino(enviarAt, "WR", destino)
+    except (ErrorXBee, OSError) as error:
+        raise ErrorXBee(f"{estado}. Guardado en memoria sin confirmar. {error}") from error
+    except KeyboardInterrupt:
+        print(f"{estado}. Guardado en memoria sin confirmar.")
+        raise
+    return cambio
+
+
+def guardarDestinoUsb(nodo, baudios, destino):
+    with abrirPuerto(nodo["puerto"], baudios) as puerto:
+        ap = entrarModoComandoAislado(puerto, TIEMPO_GUARDA_INICIAL_S)
+        try:
+            enviarAt = partial(enviarComandoTexto, puerto)
+            mac = f"{enviarAt('SH'):08X}{enviarAt('SL'):08X}"
+            if ap != 0 or mac != nodo["MAC"]:
+                raise ErrorXBee("el puerto ya no corresponde al nodo AP=0 seleccionado")
+            return guardarDestinoEnvio(enviarAt, destino)
+        finally:
+            salirModoComando(puerto, ap)
+
+
+def operacionConfigurarEnvio(rutaPuerto, baudios):
+    """Busca en la red del receptor y configura el destino de un nodo AP=0."""
+    print("\nConfigurando envío a la red. Identificando radios USB...")
+    radiosUsb = leerRadiosUsbEnvio(rutaPuerto, baudios)
+    receptores = [radio for radio in radiosUsb.values() if radio["AP"] == 1]
+    if not receptores:
+        raise ErrorXBee("conecte un XBee receptor con AP=1 para buscar en la red")
+    receptor = next(
+        (radio for radio in receptores if radio["puerto"] == str(PUERTO_XBEE)),
+        None,
+    )
+    if receptor is None:
+        receptor = seleccionarRadioEnvio(receptores, "Seleccione el XBee receptor")
+    if receptor is None:
+        return
+
+    with abrirPuerto(receptor["puerto"], baudios) as puerto:
+        actual, modo, opcionesNo, tiempoNt = prepararDescubrimientoApi(
+            puerto, TIEMPO_GUARDA_INICIAL_S,
+        )
+        if actual["MAC"] != receptor["MAC"] or actual["AP"] != 1:
+            raise ErrorXBee("el puerto ya no corresponde al receptor AP=1 seleccionado")
+        receptor = dict(actual, puerto=receptor["puerto"])
+        radios = buscarRadiosEnvio(puerto, modo, receptor, opcionesNo, tiempoNt, radiosUsb)
+        mostrarRadiosEnvio(radios, receptor)
+        nodos = [radio for radio in radios if radio["AP"] == 0]
+        if not nodos:
+            print("\nNo se encontró un nodo AP=0 disponible para configurar.")
+            return
+        if len(nodos) > 1:
+            print()
+        nodo = seleccionarRadioEnvio(nodos, "Seleccione el nodo que envía mediciones")
+        if nodo is None:
+            return
+
+        enviarRemoto = partial(enviarComandoApi, puerto, modo, mac=nodo["MAC"])
+        if nodo.get("puerto"):
+            etiquetaNodo = "Nodo conectado"
+            destinoActual = (nodo["DH"], nodo["DL"])
+        else:
+            etiquetaNodo = "Nodo seleccionado"
+            destinoActual = (enviarRemoto("DH"), enviarRemoto("DL"))
+
+        print("\nConfigurar envío a la red")
+        print(f"\n{etiquetaNodo:<29} {describirRadioEnvio(nodo)}")
+        print(f"{'Destino actual':<29} {formatearDestinoEnvio(*destinoActual)}")
+        print(f"\n{'XBee receptor (coordinador)':<29} {describirRadioEnvio(receptor)}")
+        print(f"{'MAC del receptor (SH:SL)':<29} {receptor['MAC']}")
+        print(f"{'Destino del receptor (DH:DL)':<29} {formatearDestinoEnvio(receptor['DH'], receptor['DL'])}")
+        print("\n  1. Broadcast")
+        print("  2. Unicast a la MAC del XBee receptor")
+        print("  0. Volver")
+        while True:
+            opcion = input("Seleccione el destino: ").strip()
+            if opcion in ("0", "1", "2"):
+                break
+            print("Opción no válida.")
+        if opcion == "0":
+            return
+        destino = (0, 0xFFFF) if opcion == "1" else (receptor["SH"], receptor["SL"])
+        if nodo.get("puerto"):
+            cambio = guardarDestinoUsb(nodo, baudios, destino)
+        else:
+            if enviarRemoto("AP") != 0:
+                raise ErrorXBee("el nodo remoto ya no está configurado con AP=0")
+            cambio = guardarDestinoEnvio(enviarRemoto, destino)
+        mensaje = "Destino guardado y verificado" if cambio else "Destino ya configurado y verificado"
+        print(f"{mensaje}: {formatearDestinoEnvio(*destino)}")
+
+
+def dibujitoMenu():
+    """Muestra solamente las opciones disponibles."""
+    print("  1. Leer configuración del XBee local")
+    print("  2. Configurar ID, AP, CE y NI")
+    print("  3. Descubrir módulos Xbee")
+    print("  4. Mostrar registro de módulos")
+    print("  5. Configurar a distancia otro XBee")
+    print("  6. Configurar envío a la red")
+    print("  7. Cambiar puerto serial")
+    print("  0. Salir\n")
+
+
+def lineaMenu(rutaPuerto, baudios, niPuertoActual=None, idRedActual=None):
+    """Muestra el puerto y los últimos NI e ID locales confirmados."""
+    print("=" * 63)
     print("CONFIGURADOR DE RED XBEE-PRO 900HP DIGIMESH")
-    print("=" * 58)
+    print("=" * 63)
 
     lineaPuerto = f"Puerto actual: {rutaPuerto} | {baudios} baudios"
 
     if niPuertoActual:
         lineaPuerto += f" | NI: {niPuertoActual}"
 
+    if idRedActual is not None:
+        lineaPuerto += f" | ID: 0x{idRedActual:04X}"
+    else:
+        lineaPuerto += " | ID: no confirmado"
+
     print(lineaPuerto)
     print()
-    print("  1. Leer configuración del XBee local")
-    print("  2. Configurar ID, AP, CE y NI")
-    print("  3. Descubrir módulos Xbee")
-    print("  4. Mostrar registro de módulos")
-    print("  5. Configurar a distancia otro XBee")
-    print("  6. Cambiar puerto serial")
-    print("  0. Salir\n")
+
+
+def mostrarMenu(rutaPuerto, baudios, niPuertoActual=None, idRedActual=None):
+    """Dibuja el menú y el NI conocido del puerto, sin consultar nuevamente el radio."""
+    lineaMenu(rutaPuerto, baudios, niPuertoActual, idRedActual)
+    dibujitoMenu()
     
 
 
 # ************************ PROGRAMA PRINCIPAL ********************* #
 
+def limpiarTerminal():
+    """Limpia la pantalla y deja el cursor al principio en una terminal real."""
+    if sys.stdout.isatty():
+        print("\033[2J\033[H", end="", flush=True)
+
+
+def seleccionarPuertoActivo(baudios):
+    """Inicializa únicamente el puerto elegido y permite volver si no responde."""
+    while True:
+        rutaPuerto = seleccionarPuerto()
+        if rutaPuerto is None:
+            return None
+
+        try:
+            idRedLocal = configurarGtAlIniciar(rutaPuerto, baudios)
+        except (ErrorXBee, serial.SerialException, OSError, ValueError) as error:
+            print(f"\nError: {error}")
+            continue
+
+        return rutaPuerto, identificarNiEnPuerto(rutaPuerto, baudios), idRedLocal
+
+
 def main():
-    """Procesa los argumentos y mantiene el menú activo hasta elegir Salir."""
-    # argparse permite, por ejemplo:
-    # python3 configurador_red_xbee_v3.py --puerto /dev/ttyUSB0 --baudios 9600
-    analizador = argparse.ArgumentParser(                                        # argparse es un módulo de Python que permite recibir opciones escritas en la terminal.
-        description=(                                                            # argparse.ArgumentParser(...) crea un objeto encargado de analizar lo que el usuario escriba
-            "Configura XBee-PRO 900HP DigiMesh por CP2102 sin utilizar XCTU."    # description=... es un texto que se muestra al ejecutar python3 configurador_red_xbee.py --help
-        )
-    )
-    analizador.add_argument(
-        "--puerto",                                     # “Quiero permitir una opción llamada --puerto" Por tanto, el usuario podrá escribir: python3 configurador.py --puerto /dev/ttyUSB0
-        help="Puerto serial, por ejemplo /dev/ttyUSB0",
-    )
-    analizador.add_argument(
-        "--baudios",                                    # python3 configurador.py --baudios 9600
-        type=int,                                       # El valor recibido debe convertirse a un entero
-        default=BAUDIOS,                                # Si el usuario no escribe --baudios, utiliza automáticamente el valor de la constante BAUDIOS
-        help=f"Velocidad serial actual del XBee; predeterminado {BAUDIOS}",
-    )
-    argumentos = analizador.parse_args()                # Aquí es donde argparse realmente mira lo que se escribió en la terminal. Por ejemplo, si ejecutas: python3 configurador.py --puerto /dev/ttyUSB1 --baudios 115200 
-                                                        # parse_args() analiza eso y crea aproximadamente: argumentos.puerto = "/dev/ttyUSB1" argumentos.baudios = 115200
-    baudios = argumentos.baudios
-    rutaPuerto, niPuertoActual = seleccionarPuerto(
-        argumentos.puerto,
-        baudios,
-    )
+    """Mantiene el menú activo hasta elegir Salir."""
+    baudios = BAUDIOS
     try:
-        configurarGtAlIniciar(rutaPuerto, baudios)
-    except (ErrorXBee, serial.SerialException, OSError, ValueError) as error:
-        raise SystemExit(f"Error al configurar GT: {error}") from error
+        puertoActivo = seleccionarPuertoActivo(baudios)
+    except (KeyboardInterrupt, EOFError):
+        print("\nPrograma finalizado.")
+        return
+    if puertoActivo is None:
+        return
+    rutaPuerto, niPuertoActual, idRedLocal = puertoActivo
 
     # print(f"GT configurado en {GT_CONFIGURADOR_MS} ms.")
 
-    # Las opciones 1, 2, 3 y 5 devuelven el NI local para actualizar el encabezado.
+    # Las opciones 1 y 2 devuelven NI e ID locales; 3 y 5 devuelven el NI.
+    limpiarTerminal()
     while True:
-        mostrarMenu(rutaPuerto, baudios, niPuertoActual)
+        mostrarMenu(rutaPuerto, baudios, niPuertoActual, idRedLocal)
         opcion = input("Seleccione una opción: ").strip()
+        pausaAntesDelMenu = opcion != "7"
+        if opcion in ("0", "1", "2", "3", "4", "5", "6", "7"):
+            limpiarTerminal()
+            if opcion != "0":
+                lineaMenu(rutaPuerto, baudios, niPuertoActual, idRedLocal)
 
         try:
             if opcion == "1":                                               # Leer configuración del XBee local
-                niPuertoActual = operacionLeer(rutaPuerto, baudios) 
+                niPuertoActual, idRedLocal = operacionLeer(rutaPuerto, baudios) 
 
             elif opcion == "2":                                             # Configurar ID, AP, CE y NI
-                niPuertoActual = operacionConfigurar(rutaPuerto, baudios)
+                niPuertoActual, idRedLocal = operacionConfigurar(rutaPuerto, baudios)
 
-            elif opcion == "3":                                             # Descubrir módulos Xbee
+            elif opcion == "3":                                              # Descubrir módulos Xbee
+                mostrarRegistro(1)                                            
                 niPuertoActual = operacionDescubrir(rutaPuerto, baudios)
 
             elif opcion == "4":                                             # Mostrar registro de módulos
                 mostrarRegistro()
 
-            elif opcion == "5":                                             # Configurar a distancia otro XBee
+            elif opcion == "5":                                            # Configurar a distancia otro XBee
+                mostrarRegistro(1)
                 niPuertoActual = operacionConfigurarRemoto(rutaPuerto, baudios)
 
-            elif opcion == "6":                                             # Cambiar puerto serial
-                rutaPuerto, niPuertoActual = seleccionarPuerto(
-                    baudios=baudios,
-                )
-                configurarGtAlIniciar(rutaPuerto, baudios)
-                print(f"GT configurado en {GT_CONFIGURADOR_MS} ms.")
+            elif opcion == "6":
+                operacionConfigurarEnvio(rutaPuerto, baudios)
+
+            elif opcion == "7":                                             # Cambiar puerto serial
+                puertoActivo = seleccionarPuertoActivo(baudios)
+                if puertoActivo is not None:
+                    rutaPuerto, niPuertoActual, idRedLocal = puertoActivo
+                    print(f"GT configurado en {GT_CONFIGURADOR_MS} ms.")
 
             elif opcion == "0":                                             # Salir
                 print("Programa finalizado.")
@@ -2571,10 +2930,23 @@ def main():
 
         except KeyboardInterrupt:
             print("\nOperación cancelada por el usuario.")
+            pausaAntesDelMenu = True
 
         except (ErrorXBee, serial.SerialException, OSError, ValueError) as error:
             # Se informa el fallo y se vuelve al menú; no se anuncia éxito.
             print(f"\nError: {error}")
+            if opcion == "2":
+                idRedLocal = None
+            pausaAntesDelMenu = True
+
+        # Mantiene visibles las lecturas y los resultados hasta que el usuario
+        # decida volver. Al cambiar de puerto se muestra el menú de inmediato.
+        if pausaAntesDelMenu:
+            try:
+                input("\nPresione Enter para volver al menú...")
+            except (KeyboardInterrupt, EOFError):
+                print()
+        limpiarTerminal()
 
 
 if __name__ == "__main__":
